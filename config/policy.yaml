@@ -1,0 +1,166 @@
+# Example project policy. See ARCHITECTURE.md §8 for evaluation order:
+# explicit deny > require_approval > warn > allow > default_posture.
+default_posture: deny
+
+deny:
+  - action: "git.push"
+    when: {branch: "main"}
+  - action: "git.push"
+    when: {branch: "master"}
+  - action: "git.branch"
+    when: {branch: "main"}
+  - action: "secret.commit"
+  # Phase 2 (GitHub): pushing to a protected branch is denied the same way
+  # regardless of which tool asks - github.push_branch (via PushAgent) and
+  # the local git.push capability are gated by the identical rule shape.
+  - action: "github.push"
+    when: {branch: "main"}
+  - action: "github.push"
+    when: {branch: "master"}
+  # Phase 4 (Security Intelligence, Part 8): a CRITICAL security finding
+  # is never auto-remediated-and-merged - SecurityAgent always routes it
+  # to a human-required escalation instead (see
+  # agents/security_intelligence_agent.py's module docstring for exactly
+  # how this DENY decision is used).
+  - action: "security.finding"
+    when: {severity: "critical"}
+  # Phase 5 (Infrastructure Intelligence, Part 14): destructive live
+  # infrastructure operations are DENY by default - not
+  # require_approval. An approval prompt is the right gate for a risky
+  # action the platform should be able to perform; deletion of live
+  # infrastructure is one this platform should not perform at all, so
+  # the verb is denied outright and a human does it outside the platform.
+  - action: "infra.resource_delete"
+  - action: "infra.terraform_destroy"
+  - action: "infra.cluster_resource_delete"
+  # A CRITICAL infrastructure finding (after risk weighting - see
+  # infra/risk.py) is never auto-remediated, exactly as Phase 4 treats a
+  # CRITICAL security finding.
+  - action: "infra.finding"
+    when: {severity: "critical"}
+
+# Phase 6 (CI/CD & Deployment Intelligence, Part 11). Deployment/rollback
+# actions reuse the SAME PolicyEngine, and the actions below are always
+# passed as fixed string literals from `cicd/environment.py` /
+# `deployment/rollback.py` - never built from repository content, a
+# workflow file, or a model's output (Part 20).
+
+require_approval:
+  - action: "deploy.apply"
+    when: {environment: "production"}
+  - action: "db.migrate"
+    when: {destructive: true}
+  - action: "iam.expand_privilege"
+  # Phase 2 (GitHub): force-pushing rewrites history on a remote branch -
+  # treated as a destructive GitHub operation regardless of which branch,
+  # per ARCHITECTURE.md Phase 2 addendum.
+  - action: "github.push"
+    when: {force: true}
+  # Phase 4: HIGH severity findings must be remediated per policy - a safe
+  # automated fix (if one exists) is still attempted, but the decision is
+  # explicitly recorded rather than silently defaulting to ALLOW.
+  - action: "security.finding"
+    when: {severity: "high"}
+  # Phase 5 (Part 14). Everything that changes LIVE infrastructure needs a
+  # human, regardless of how confident the platform is. Note that Phase 5
+  # never invokes these actions at all (it only edits repository files) -
+  # they are declared now so the gate exists BEFORE any phase gains the
+  # ability to trip it, rather than being added alongside the capability
+  # that needs restraining.
+  - action: "infra.terraform_apply"
+  # Note the deliberate asymmetry: PRODUCTION IAM/network changes match
+  # this rule and require approval; NON-production ones match no rule at
+  # all and therefore fall through to `default_posture: deny`. That is
+  # stricter, not a gap - this platform has no business modifying IAM or
+  # networking in any environment during Phase 5, and production is called
+  # out explicitly only because Part 14 names it. If a later phase gains a
+  # legitimate non-production path, it must add an explicit rule rather
+  # than inherit one.
+  - action: "infra.iam_modify"
+    when: {environment: "production"}
+  - action: "infra.network_modify"
+    when: {environment: "production"}
+  - action: "infra.credential_rotate"
+  - action: "infra.cluster_apply"
+  - action: "infra.finding"
+    when: {severity: "high"}
+  # Phase 6 Part 11: production deployment always needs a human, regardless
+  # of how green the pipeline is - deployability computed by
+  # `progress/deployability.py` is a *readiness* signal, never an
+  # authorization to deploy.
+  - action: "deployment.deploy"
+    when: {environment: "production"}
+  # Rollback of a production deployment ALSO needs a human by default -
+  # the explicit carve-out is `deployment.emergency_rollback` below, a
+  # SEPARATE action name (not a flag on this one), so the emergency path
+  # can never be reached by accident through this rule.
+  - action: "deployment.rollback"
+    when: {environment: "production"}
+
+warn:
+  - action: "dependency.upgrade"
+    when: {major_version_bump: true}
+  # Phase 4: MEDIUM severity findings get a remediation task (attempted
+  # opportunistically) but never block anything on their own.
+  - action: "security.finding"
+    when: {severity: "medium"}
+  - action: "infra.finding"
+    when: {severity: "medium"}
+
+allow:
+  - action: "git.branch"
+  - action: "git.commit"
+  - action: "git.push_local"
+  - action: "test.run"
+  - action: "recon.inspect"
+  - action: "github.push"
+  # Phase 4: LOW/INFO findings are tracked and prioritized, never
+  # auto-remediated (see SecurityAgent._scan) - explicit ALLOW rather than
+  # falling through to `default_posture: deny`, which would otherwise
+  # incorrectly route them into the same escalation path as CRITICAL.
+  - action: "security.finding"
+    when: {severity: "low"}
+  - action: "security.finding"
+    when: {severity: "info"}
+  # Phase 4 (Part 4 step 6): inspecting git history for a possibly-exposed
+  # secret is read-only and non-destructive (no history rewrite is ever
+  # performed automatically) - explicitly allowed rather than defaulting
+  # to deny, which would otherwise silently skip a real, useful signal.
+  - action: "security.git_history_inspection"
+  # Phase 5 (Part 6/14): infrastructure discovery is read-only and is
+  # explicitly allowed. The `read_only: true` condition matters - a
+  # hypothetical future non-read-only discovery would NOT match this rule
+  # and would fall through to `default_posture: deny`, so the allowance
+  # cannot silently widen if the capability changes.
+  - action: "infra.discovery"
+    when: {read_only: true}
+  - action: "infra.cloud_discovery"
+    when: {read_only: true}
+  # Repository-level infrastructure fixes are allowed subject to the
+  # tests/validation the remediation chain already runs (Part 14:
+  # "Repository security fix: ALLOW subject to tests").
+  - action: "infra.repository_fix"
+  - action: "infra.finding"
+    when: {severity: "low"}
+  - action: "infra.finding"
+    when: {severity: "info"}
+  # Phase 6 Part 11: development/staging deployments proceed without a
+  # human, subject to every release gate already having passed (the
+  # release-gate engine runs BEFORE policy is ever consulted - see
+  # `agents/deployment_agent.py`). Note production is deliberately absent
+  # from this ALLOW list; it only matches the REQUIRE_APPROVAL rule above.
+  - action: "deployment.deploy"
+    when: {environment: "development"}
+  - action: "deployment.deploy"
+    when: {environment: "staging"}
+  - action: "deployment.rollback"
+    when: {environment: "development"}
+  - action: "deployment.rollback"
+    when: {environment: "staging"}
+  # The one explicit emergency-automatic-rollback carve-out Part 10/11
+  # asks for: a SEPARATE, narrowly-scoped action name (never the same
+  # action as a normal rollback with a flag toggled) matched only for the
+  # specific reason a CRITICAL rollout/health failure produces. See
+  # `deployment/rollback.py::RollbackPlanner`.
+  - action: "deployment.emergency_rollback"
+    when: {environment: "production", reason: "critical_rollout_failure"}

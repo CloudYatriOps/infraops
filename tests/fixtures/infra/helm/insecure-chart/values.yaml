@@ -1,0 +1,21 @@
+# Phase 5 test fixture - DELIBERATELY INSECURE chart defaults.
+replicaCount: 1
+image:
+  repository: nginx
+  tag: latest
+securityContext:
+  privileged: true
+  runAsUser: 0
+  allowPrivilegeEscalation: true
+hostNetwork: true
+service:
+  type: NodePort
+  port: 80
+rbac:
+  create: true
+  clusterWide: true
+networkPolicy:
+  enabled: false
+ingress:
+  enabled: true
+  tls: []

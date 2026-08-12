@@ -1,0 +1,11 @@
+# Example project adapter configuration (illustrative - ProjectConfig is
+# constructed directly in code/tests in this Phase 1 repo; a YAML loader
+# for this shape is a natural Phase 2 addition once multiple real projects
+# are onboarded).
+id: demo
+name: "Demo Project"
+repo_path: "./demo_project"
+policy_path: "./config/policy.yaml"
+default_posture: deny
+protected_branches: ["main", "master"]
+token_budget: 100000

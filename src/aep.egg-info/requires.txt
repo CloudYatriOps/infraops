@@ -1,0 +1,11 @@
+pyyaml>=6.0
+packaging>=21.0
+
+[anthropic]
+anthropic>=0.30.0
+
+[dependency-scanning]
+pip-audit>=2.6
+
+[dev]
+pytest>=8.0

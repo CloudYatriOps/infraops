@@ -1,0 +1,107 @@
+# Bundled, fully offline semgrep ruleset (Phase 4 Part 5).
+#
+# `semgrep --config auto` (or any `p/...` registry shorthand) needs
+# semgrep.dev/c.semgrep.dev, which this sandbox's egress proxy blocks
+# (confirmed via direct curl during Phase 4 investigation - both returned
+# `000`). Every real SAST finding in this platform therefore comes from
+# THIS local rule file, invoked as `semgrep --config <this file>`, not
+# from semgrep's remote registry. This is a genuinely smaller ruleset than
+# semgrep's full registry - documented honestly as a sandbox constraint in
+# ARCHITECTURE.md's Phase 4 addendum, not presented as equivalent coverage.
+#
+# Each rule below is intentionally narrow and maps to a real CWE, so a
+# match is a real, explainable finding rather than a generic keyword hit.
+rules:
+  - id: dangerous-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: >
+      subprocess call with shell=True and a non-literal command is
+      vulnerable to shell/command injection (CWE-78) if any part of the
+      command is influenced by external input.
+    metadata:
+      cwe: "CWE-78"
+      category: security
+      aep_severity: high
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.run(..., shell=True, ...)
+          - pattern: subprocess.call(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)
+          - pattern: os.system(...)
+
+  - id: sql-injection-string-format
+    languages: [python]
+    severity: ERROR
+    message: >
+      building a SQL query with string formatting/concatenation instead of
+      a parameterized query is vulnerable to SQL injection (CWE-89).
+    metadata:
+      cwe: "CWE-89"
+      category: security
+      aep_severity: critical
+    patterns:
+      - pattern-either:
+          - pattern: $CURSOR.execute(... % ...)
+          - pattern: $CURSOR.execute(... + ...)
+          - pattern: $CURSOR.execute(f"...")
+
+  - id: insecure-deserialization-pickle
+    languages: [python]
+    severity: ERROR
+    message: >
+      `pickle.load`/`pickle.loads` on data that may come from an untrusted
+      source allows arbitrary code execution on deserialization (CWE-502).
+    metadata:
+      cwe: "CWE-502"
+      category: security
+      aep_severity: high
+    patterns:
+      - pattern-either:
+          - pattern: pickle.load(...)
+          - pattern: pickle.loads(...)
+
+  - id: yaml-load-without-safe-loader
+    languages: [python]
+    severity: WARNING
+    message: >
+      `yaml.load()` without an explicit `Loader=yaml.SafeLoader` can
+      execute arbitrary Python objects embedded in the YAML document
+      (CWE-502).
+    metadata:
+      cwe: "CWE-502"
+      category: security
+      aep_severity: medium
+    patterns:
+      - pattern: yaml.load($DATA)
+
+  - id: eval-or-exec-on-dynamic-input
+    languages: [python]
+    severity: ERROR
+    message: >
+      `eval`/`exec` on non-literal input allows arbitrary code execution
+      (CWE-95) if the input is ever influenced by an external source.
+    metadata:
+      cwe: "CWE-95"
+      category: security
+      aep_severity: critical
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+
+  - id: weak-hash-for-security-purpose
+    languages: [python]
+    severity: WARNING
+    message: >
+      MD5/SHA1 are not suitable for password hashing or any
+      security-sensitive integrity check (CWE-327); use a dedicated
+      password hash (e.g. bcrypt/scrypt/argon2) or SHA-256+ for integrity.
+    metadata:
+      cwe: "CWE-327"
+      category: security
+      aep_severity: medium
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)

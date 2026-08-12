@@ -1,0 +1,26 @@
+[project]
+name = "aep"
+version = "0.1.0"
+description = "Autonomous Engineering & DevSecOps Platform (Phase 1 core)"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "packaging>=21.0",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.30.0"]
+dev = ["pytest>=8.0"]
+# Real Python dependency/CVE scanning (Phase 3). Node.js scanning uses the
+# system `npm` binary directly and needs no Python package.
+dependency-scanning = ["pip-audit>=2.6"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

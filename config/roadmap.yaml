@@ -1,0 +1,456 @@
+# Versioned, machine-readable platform roadmap (Phase 3 Part G).
+#
+# This file is the SINGLE SOURCE OF TRUTH for what phases/capabilities the
+# platform is made of. `aep status` / `aep progress` (src/aep/progress/)
+# read this file and combine it with real execution state - whether each
+# capability's referenced tests actually pass right now - to compute
+# percentages, phase status, and deployability. ARCHITECTURE.md's prose
+# roadmap section describes history/design and must stay consistent with
+# this file, but this file is what code reads. Nothing in
+# src/aep/progress/ hard-codes a percentage anywhere.
+#
+# A capability with `test_paths: []` has not been verified by anything
+# executable and is always PENDING, regardless of whether source code for
+# it exists - "a phase is not complete merely because code exists."
+#
+# A capability with `blocked: true` is real, implemented code whose
+# `is_available()`/environment check fails in the CURRENT execution
+# environment (e.g. a required external tool or network path is missing) -
+# distinct from "not built yet". See `blocked_reason` for exactly why.
+
+version: 1
+
+phases:
+  - id: 1
+    name: "Core Platform"
+    description: >
+      Orchestrator, durable task engine, capability-scoped tool registry,
+      deny-by-default policy engine, AI provider abstraction, failure
+      classification/retry/circuit-breaking, the first real security gate
+      (deterministic secret scanner), and Recon/Code/Testing agents
+      operating on a real local git repository.
+    capabilities:
+      - id: core.orchestrator_task_engine
+        description: "Dependency-aware task graph with durable SQLite state and crash recovery"
+        test_paths: ["tests/test_state_store.py", "tests/test_end_to_end_demo.py"]
+      - id: core.tool_registry
+        description: "Capability-scoped tool registry; every call audited"
+        test_paths: ["tests/test_tool_registry.py"]
+      - id: core.policy_engine
+        description: "Deny-by-default policy engine (ALLOW/DENY/REQUIRE_APPROVAL/WARN)"
+        test_paths: ["tests/test_policy_engine.py"]
+      - id: core.failure_classification
+        description: "Failure classification, retry/backoff, per-type circuit breaker"
+        test_paths: ["tests/test_failure_classifier.py"]
+      - id: core.ai_provider_abstraction
+        description: "AIProvider protocol, MockProvider, ModelRouter with token budget"
+        test_paths: ["tests/test_providers.py"]
+      - id: core.secret_scanner
+        description: "Deterministic secret scanner blocking a task graph (not just a WARN)"
+        test_paths: ["tests/test_verification_discipline.py"]
+      - id: core.secrets_management
+        description: "SecretManager abstraction; secrets never in payload/logs"
+        test_paths: ["tests/test_secrets.py"]
+      - id: core.recon_code_test_agents
+        description: "Recon/Code/Testing agents against a real local git repo"
+        test_paths: ["tests/test_end_to_end_demo.py"]
+
+  - id: 2
+    name: "GitHub Engineering"
+    description: >
+      Real GitHub REST client, capability-scoped GitHub tool, token-safe
+      push via GIT_ASKPASS, and a full autonomous discover -> branch ->
+      implement -> verify -> commit -> push -> PR -> CI-inspect -> diagnose
+      -> fix -> re-check loop built entirely from Phase 1's existing
+      follow_up_tasks mechanism.
+    capabilities:
+      - id: github.rest_client
+        description: "Real GitHub REST client (repos/branches/commits/PRs/issues/checks/workflows)"
+        test_paths: ["tests/test_github_client.py"]
+      - id: github.capability_scoped_tool
+        description: "GitHub tool wired into the existing capability-scoped registry"
+        test_paths: ["tests/test_github_tool.py"]
+      - id: github.push_policy_gate
+        description: "Protected-branch deny + force-push require-approval, same policy engine"
+        test_paths: ["tests/test_github_push_policy.py"]
+      - id: github.pr_ci_diagnose_loop
+        description: "Full PR/CI loop: push -> PR -> CI inspect -> diagnose -> fix -> re-check"
+        test_paths: ["tests/test_github_ci_loop.py"]
+
+  - id: 3
+    name: "Dependency & CVE Intelligence"
+    description: >
+      Real dependency manifest discovery, vulnerability scanning
+      (pip-audit/npm-audit), smallest-safe-upgrade remediation planning,
+      manifest mutation, install + real test re-run, a second real scan to
+      confirm resolution before ever claiming "fixed", and hand-off into
+      the existing GitHub branch/PR/CI workflow. Also delivered in this
+      phase: the durable, data-derived progress/deployability system this
+      file is part of (`platform.*` capabilities below).
+    capabilities:
+      - id: dependency.manifest_discovery
+        description: "Discovers requirements.txt/pyproject.toml/package.json/go.mod/Dockerfile"
+        test_paths: ["tests/test_dependency_manifests.py"]
+      - id: dependency.python_scanning
+        description: "Real pip-audit scanning of Python requirements.txt manifests"
+        test_paths: ["tests/test_dependency_scanning.py"]
+      - id: dependency.node_scanning
+        description: "Real npm-audit scanning of Node.js package.json manifests"
+        test_paths: ["tests/test_dependency_scanning.py"]
+      - id: dependency.go_scanning
+        description: "govulncheck-based Go module scanning"
+        test_paths: []
+        blocked: true
+        blocked_reason: >
+          govulncheck is not installed and `go install .../govulncheck@latest` needs
+          proxy.golang.org, which this sandbox's egress proxy returns 403 for
+          (confirmed by direct curl during Phase 3 investigation). Architecture
+          (dependency/scanners/govulncheck_scanner.py) exists; execution is
+          unverified here.
+      - id: dependency.container_scanning
+        description: "Trivy-based container image scanning"
+        test_paths: []
+        blocked: true
+        blocked_reason: >
+          No trivy/grype binary and no container runtime available in this
+          sandbox. Architecture (dependency/scanners/trivy_scanner.py) exists;
+          execution is unverified here.
+      - id: dependency.remediation_planning
+        description: "Smallest-safe-upgrade selection; refuses to guess when unsafe/ambiguous"
+        test_paths: ["tests/test_dependency_remediation.py"]
+      - id: dependency.manifest_mutation
+        description: "Applies a remediation plan to requirements.txt/package.json and commits"
+        test_paths: ["tests/test_dependency_agent.py"]
+      - id: dependency.rescan_verification
+        description: "Confirms a finding is actually gone via a second real scan before success"
+        test_paths: ["tests/test_dependency_agent.py"]
+      - id: dependency.github_handoff
+        description: "Successful remediation feeds the existing push/PR/CI-loop workflow"
+        test_paths: ["tests/test_dependency_github_loop.py"]
+      - id: platform.progress_engine
+        description: "Durable, roadmap-data-derived phase/capability progress calculation"
+        test_paths: ["tests/test_progress_engine.py"]
+      - id: platform.deployability_calculator
+        description: "NOT_DEPLOYABLE..PRODUCTION_READY levels derived from real gates"
+        test_paths: ["tests/test_progress_engine.py"]
+      - id: platform.status_cli
+        description: "aep status / aep progress / aep status --json"
+        test_paths: ["tests/test_cli_status.py"]
+
+  - id: 4
+    name: "Security Intelligence"
+    description: >
+      Real multi-scanner security intelligence: secret scanning (gitleaks),
+      SAST (semgrep against a bundled local ruleset), IaC misconfiguration
+      scanning (checkov), a normalized cross-scanner finding model, real
+      remediation + second-scan verification for secrets/SAST/IaC, a
+      false-positive suppression model, security-policy integration, and
+      security posture reporting folded into the existing progress/status
+      system. Container scanning (trivy) is architecturally complete but
+      BLOCKED in this sandbox - see security.container_scanning below.
+    capabilities:
+      - id: security.scanner_framework
+        description: >
+          Generic ScannerDescriptor/discovery abstraction (scanner id, capability, supported
+          files, tool, findings schema, severity, evidence, remediation support,
+          AVAILABLE/UNAVAILABLE/BLOCKED/NOT_APPLICABLE availability)
+        test_paths: ["tests/test_security_discovery.py", "tests/test_security_models.py"]
+      - id: security.secret_scanning
+        description: "Real gitleaks-backed secret scanning"
+        test_paths: ["tests/test_security_scanners.py"]
+      - id: security.sast_scanner
+        description: >
+          Real semgrep-backed SAST scanning against a bundled local ruleset (semgrep.dev
+          registry is unreachable in this sandbox)
+        test_paths: ["tests/test_security_scanners.py"]
+      - id: security.iac_scanner
+        description: "Real checkov-backed Terraform/IaC misconfiguration scanning"
+        test_paths: ["tests/test_security_scanners.py"]
+      - id: security.container_scanning
+        description: "Trivy-based container image scanning"
+        test_paths: []
+        blocked: true
+        blocked_reason: >
+          No trivy/grype binary is installable (not in apt, GitHub releases return 403), AND
+          Docker Hub itself is blocked at the registry layer even though the Docker daemon can
+          be started locally (docker pull returns 403 Forbidden on registry-1.docker.io) - two
+          independent paths exhausted, confirmed directly during Phase 4 investigation.
+          Architecture (security/scanners/trivy_scanner.py) exists; execution is unverified here.
+      - id: security.unified_findings_model
+        description: >
+          Consolidated SecurityFinding model across secret/SAST/IaC/container scanners
+          (category, severity, confidence, resource, status, false-positive state,
+          task/verification linkage)
+        test_paths: ["tests/test_security_models.py"]
+      - id: security.security_agent_pipeline
+        description: >
+          SecurityAgent: discover -> normalize -> prioritize -> remediate/escalate -> test ->
+          rescan -> verify, mirroring DependencyCVEAgent's mode shape
+        test_paths: ["tests/test_security_agent.py"]
+      - id: security.secret_remediation
+        description: >
+          Credential-likelihood assessment, env-var reference replacement (never prints the
+          raw value), git-history inspection, rotation flagging
+        test_paths: ["tests/test_security_remediation.py"]
+      - id: security.sast_remediation
+        description: >
+          Narrow, verified-shape SAST auto-fix (subprocess shell=True -> arg list); anything
+          outside the verified shape is escalated, never guessed at
+        test_paths: ["tests/test_security_remediation.py"]
+      - id: security.iac_remediation
+        description: >
+          Narrow, verified-shape IaC auto-fix (public S3 ACL -> private + access block); an
+          open security-group CIDR is always escalated, never auto-chosen
+        test_paths: ["tests/test_security_remediation.py"]
+      - id: security.policy_integration
+        description: >
+          CRITICAL/HIGH/MEDIUM/LOW/INFO severity -> DENY/REQUIRE_APPROVAL/WARN/ALLOW via the
+          existing PolicyEngine/config/policy.yaml; secret.commit reused unmodified
+        test_paths: ["tests/test_security_policy.py"]
+      - id: security.false_positive_suppression
+        description: >
+          Durable, append-only suppression model (justification/reviewer/evidence/expiry) - a
+          suppression is never a silent deletion
+        test_paths: ["tests/test_security_suppressions.py"]
+      - id: security.security_posture
+        description: >
+          Security score/posture (Secrets/SAST/Dependencies/IaC/Containers PASS or
+          severity-count, readiness NOT_READY/READY) folded into aep status/progress
+        test_paths: ["tests/test_security_posture.py", "tests/test_cli_security_status.py"]
+      - id: security.e2e_verification
+        description: >
+          Real, unmocked DISCOVER->REMEDIATE->TEST->RESCAN->VERIFY for secret/SAST/IaC
+          fixtures; container category explicitly asserted BLOCKED, never faked
+        test_paths: ["tests/test_security_e2e.py"]
+      - id: security.agent_threat_model
+        description: >
+          SecurityAgent's own attack surface: no AI provider calls (nothing to prompt-inject),
+          no direct subprocess/eval of scanner output, fixed policy-action literals (not built
+          from finding text), capability scope never expanded at runtime
+        test_paths: ["tests/test_security_agent_safety.py"]
+
+  - id: 5
+    name: "Infrastructure Intelligence"
+    description: >
+      Real infrastructure discovery (Terraform/Helm/Kubernetes/Dockerfile/
+      GitOps/CI), Terraform and Kubernetes security analysis, safe
+      deterministic repository-level remediation with real validation, a
+      risk model weighting production and blast radius, drift detection,
+      and a provider-agnostic read-only cloud adapter architecture with
+      AWS fully implemented. Live cloud verification is BLOCKED here (no
+      credentials, no reachable endpoint) and the terraform/helm/kubectl
+      binaries cannot be installed - see the blocked capabilities below.
+    capabilities:
+      - id: infra.discovery
+        description: >
+          Normalized, provider-agnostic inventory across Terraform roots/modules/state config,
+          Helm charts, Kubernetes manifests, Kustomize, Dockerfiles, compose, cloud/environment
+          config, GitOps, and infra-touching CI workflows
+        test_paths: ["tests/test_infra_discovery.py"]
+      - id: infra.terraform_analysis
+        description: >
+          Real HCL2-backed Terraform analysis for configuration-level risks checkov's
+          resource checks cannot reach - provider credentials, unsafe state backends,
+          unpinned providers, unparseable files
+        test_paths: ["tests/test_infra_terraform.py"]
+      - id: infra.kubernetes_analysis
+        description: >
+          Real checkov Kubernetes policy scanning (privileged/hostNetwork/hostPID/capabilities/
+          root/limits/probes/RBAC wildcards) plus native analysis of NodePort exposure,
+          missing NetworkPolicy, committed Secrets, and ingress TLS
+        test_paths: ["tests/test_infra_kubernetes.py"]
+      - id: infra.helm_analysis
+        description: >
+          Helm chart values-level static analysis with honest BLOCKED reporting for the
+          rendering path
+        test_paths: ["tests/test_infra_helm.py"]
+      - id: infra.helm_rendering
+        description: "helm lint / helm template rendered-chart analysis"
+        test_paths: []
+        blocked: true
+        blocked_reason: >
+          The `helm` binary is not installed and cannot be obtained: get.helm.sh is unreachable
+          through this sandbox's egress proxy (curl returns 000), the same block pattern
+          documented for releases.hashicorp.com, dl.k8s.io, proxy.golang.org and
+          registry-1.docker.io. Note that `checkov --framework helm` silently reports 0 findings
+          and exit code 0 in this state because it shells out to that same missing binary -
+          infra/scanners/helm_scanner.py deliberately does not trust that result.
+      - id: infra.terraform_cli_validation
+        description: "terraform fmt / terraform validate on remediated configurations"
+        test_paths: []
+        blocked: true
+        blocked_reason: >
+          The `terraform` binary is not installed and cannot be obtained (releases.hashicorp.com
+          is unreachable through this sandbox's egress proxy, curl returns 000). Real HCL2
+          structural validation runs in its place and is labelled as strictly weaker;
+          infra/validation.py reports the terraform validators as ran=False, never as passing.
+      - id: infra.validation
+        description: >
+          Three-state validation (ran/passed/blocked) via real HCL2 structural parsing and real
+          kubernetes-validate schema checks; a validator that could not run is never counted
+          as a pass, and an unvalidatable change is reverted rather than committed
+        test_paths: ["tests/test_infra_validation.py"]
+      - id: infra.risk_model
+        description: >
+          Infrastructure findings normalized into the existing SecurityFinding model with
+          environment, blast radius and exploitability weighting; escalation-only so a
+          mis-inferred environment can never hide a real finding
+        test_paths: ["tests/test_infra_risk.py"]
+      - id: infra.remediation
+        description: >
+          Safe deterministic repository-level fixes (privileged/hostNetwork/hostPID/
+          capabilities/root/resource limits, backend encryption, provider pinning); ambiguous
+          IAM and network policy is always escalated
+        test_paths: ["tests/test_infra_remediation.py"]
+      - id: infra.drift_detection
+        description: >
+          Desired-vs-actual comparison reporting drift, unmanaged resources and
+          security-relevant differences, producing a human remediation plan and never
+          reconciling
+        test_paths: ["tests/test_infra_drift.py"]
+      - id: infra.cloud_adapter_architecture
+        description: >
+          Provider-agnostic CloudProviderAdapter contract covering all eleven Part 5
+          capability areas, read-only by construction (no write verb exists), with a registry
+          that reports unimplemented providers as NOT_IMPLEMENTED rather than stubbing them
+        test_paths: ["tests/test_infra_cloud_adapter.py"]
+      - id: infra.aws_adapter_contract
+        description: >
+          AWS adapter fully implemented against boto3 with an injectable client factory,
+          verified by contract tests through a mocked transport; status() proves
+          authentication with a real sts round-trip rather than trusting credential presence
+        test_paths: ["tests/test_infra_cloud_adapter.py"]
+      - id: infra.live_cloud_verification
+        description: "Read-only discovery against a real cloud account"
+        test_paths: []
+        blocked: true
+        blocked_reason: >
+          No cloud credentials exist in this environment and no cloud API endpoint is
+          reachable through the egress proxy. Note that this sandbox DOES export
+          AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY holding its egress *proxy* credentials (a
+          14-character value beginning `prox`, not a 20-character AKIA... key), which boto3
+          resolves - so a credentials-presence check reports a false AVAILABLE. The adapter's
+          status() performs a real sts:GetCallerIdentity round-trip instead and correctly
+          reports UNAVAILABLE here. This platform has never contacted a real cloud account.
+      - id: infra.agent_pipeline
+        description: >
+          InfrastructureDiscoveryAgent (structurally read-only - filesystem capabilities only)
+          and InfrastructureIntelligenceAgent (discover -> inventory -> analyze -> prioritize ->
+          plan -> remediate -> validate -> rescan -> PR) on the existing orchestrator
+        test_paths: ["tests/test_infra_agent.py"]
+      - id: infra.policy_integration
+        description: >
+          Terraform apply / production IAM / production networking / credential rotation
+          REQUIRE_APPROVAL; live resource deletion DENY; read-only discovery ALLOW;
+          repository fixes ALLOW subject to validation and tests
+        test_paths: ["tests/test_infra_policy.py"]
+      - id: infra.e2e_verification
+        description: >
+          Real, unmocked DISCOVER -> FIND -> CLASSIFY -> REMEDIATE -> VALIDATE -> RESCAN ->
+          VERIFY against deliberately-insecure Terraform, Kubernetes and Helm fixtures
+        test_paths: ["tests/test_infra_e2e.py"]
+      - id: infra.threat_model
+        description: >
+          Infrastructure config treated as untrusted input: no AI provider calls, no eval of
+          manifests, fixed policy-action literals, no shell interpolation of repository
+          content, read-only cloud enforcement, and no credential values in findings
+        test_paths: ["tests/test_infra_threat_model.py"]
+
+  - id: 6
+    name: "CI/CD & Deployment"
+    description: >
+      CI/CD pipeline discovery and intelligence (GitHub Actions, provider-
+      agnostic architecture), build artifact + release-gate model,
+      deployment abstraction with a fully-implemented local fixture
+      provider and an honestly-UNAVAILABLE Kubernetes provider, automatic
+      post-deployment verification, policy-gated rollback, and durable
+      per-deployment evidence. Live GitHub Actions API and live Kubernetes
+      remain BLOCKED/UNAVAILABLE in this sandbox (see cicd/providers/
+      github_actions.py and deployment/kubernetes_provider.py) - reported
+      honestly rather than mocked into a false PASS.
+    capabilities:
+      - id: cicd.pipeline_discovery
+        description: "Static, no-network discovery of GitHub Actions workflows into a normalized model"
+        test_paths: ["tests/test_cicd_discovery.py"]
+      - id: cicd.github_actions_provider
+        description: "GitHub Actions CI provider (real client, fake-transport tested; live API BLOCKED)"
+        test_paths: ["tests/test_cicd_github_actions.py"]
+      - id: cicd.failure_classification
+        description: "CI/deployment failure classification (8+ categories) driving the next action"
+        test_paths: ["tests/test_cicd_failure_classification.py"]
+      - id: cicd.ci_intelligence_agent
+        description: "CIIntelligenceAgent: inspect workflows, classify failures, route into the existing fix loop"
+        test_paths: ["tests/test_ci_intelligence_agent.py"]
+      - id: cicd.build_artifact_model
+        description: "Build artifact identity/provenance/SBOM model; never deployable without required gates"
+        test_paths: ["tests/test_cicd_artifact.py"]
+      - id: cicd.release_gates
+        description: "Explicit release-gate engine (SOURCE/DEPENDENCIES/SECURITY/INFRASTRUCTURE/CI/ARTIFACT/APPROVAL/DEPLOYMENT)"
+        test_paths: ["tests/test_release_gates.py"]
+      - id: cicd.deployment_adapter
+        description: "Provider-agnostic DeploymentProvider; fully-implemented local fixture, Kubernetes UNAVAILABLE here"
+        test_paths: ["tests/test_deployment_provider.py", "tests/test_deployment_kubernetes_provider.py"]
+      - id: cicd.deployment_agent
+        description: "DeploymentAgent: release gates -> policy -> deploy -> verify -> rollback -> evidence, plus DeploymentVerificationAgent"
+        test_paths: ["tests/test_deployment_agent.py"]
+      - id: cicd.rollback
+        description: "Rollback eligibility planning; automatic only when policy explicitly allows it"
+        test_paths: ["tests/test_deployment_rollback.py"]
+      - id: cicd.deployment_evidence
+        description: "Durable per-deployment evidence (StateStore-backed); survives a process restart"
+        test_paths: ["tests/test_deployment_evidence.py"]
+      - id: cicd.deployment_policy
+        description: "Environment-aware deployment/rollback policy gates (dev/staging ALLOW, production REQUIRE_APPROVAL)"
+        test_paths: ["tests/test_cicd_environment_policy.py"]
+      - id: cicd.threat_model
+        description: "Threat-modeled CI/CD: untrusted workflows/logs, fixed policy literals, no destructive verbs"
+        test_paths: ["tests/test_cicd_threat_model.py"]
+      - id: cicd.status_cli
+        description: "aep ci-status / aep deploy-status / aep status --cicd-repo"
+        test_paths: ["tests/test_cli_cicd_status.py"]
+      - id: cicd.e2e
+        description: "Real end-to-end: code change -> tests -> security -> infra validation -> CI -> artifact -> gates -> deploy -> verify -> rollback"
+        test_paths: ["tests/test_cicd_e2e.py"]
+
+  - id: 7
+    name: "Runtime/Observability"
+    description: >
+      Runtime health/metrics/log ingestion and correlation back to a task
+      or deployment, so the platform can reason about production behavior,
+      not just CI status.
+    capabilities:
+      - id: observability.metrics_ingestion
+        description: "Real metrics/log ingestion from a running service"
+        test_paths: []
+      - id: observability.incident_correlation
+        description: "Correlates a runtime incident back to the task/PR/commit that caused it"
+        test_paths: []
+
+  - id: 8
+    name: "24/7 Autonomous Operation"
+    description: >
+      A real worker-pool/supervisor process for continuous, unattended
+      operation across many projects at once - this platform currently
+      runs one `run_to_completion()` call at a time, not a standing
+      service.
+    capabilities:
+      - id: operation.worker_pool_supervisor
+        description: "A supervising process that runs many projects' task graphs concurrently"
+        test_paths: []
+      - id: operation.health_and_restart
+        description: "Supervisor-level health checks and automatic restart of a stuck project"
+        test_paths: []
+
+  - id: 9
+    name: "Multi-Project/Advanced Intelligence"
+    description: >
+      Cross-project learning, cost/architecture optimization, and
+      predictive remediation across a fleet of projects rather than one at
+      a time.
+    capabilities:
+      - id: advanced.cross_project_learning
+        description: "Reuses remediation/diagnosis history across more than one project"
+        test_paths: []
+      - id: advanced.predictive_remediation
+        description: "Flags likely-future issues before a scanner/CI run surfaces them"
+        test_paths: []

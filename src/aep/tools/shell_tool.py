@@ -1,0 +1,76 @@
+"""Allowlisted shell execution.
+
+This is deliberately the most restricted tool in the registry (risk=HIGH):
+only an explicit set of binaries can be invoked, arguments are passed as a
+list (never a shell string, so no injection via `; rm -rf` style payloads),
+and every call is time-boxed. Per ARCHITECTURE.md §16, this is what stops a
+malicious repository's README/CI-config from getting arbitrary code
+execution just because an agent read it.
+"""
+from __future__ import annotations
+
+import subprocess
+
+from ..models import RiskLevel
+from ..tool_registry import Tool
+
+ALLOWED_BINARIES = {
+    "pytest", "python3", "git",
+    # Phase 3: real dependency/CVE scanners, invoked the same audited,
+    # allowlisted way as every other binary here - see
+    # src/aep/dependency/scanners/ for what actually calls these.
+    "pip-audit", "npm",
+    # Phase 4: real security scanners (secret/SAST/IaC) - see
+    # src/aep/security/scanners/ for what actually calls these. `trivy` is
+    # deliberately NOT added: it is BLOCKED in this sandbox (see
+    # security/scanners/trivy_scanner.py) and this platform never invokes
+    # a binary it has already determined is unavailable.
+    "gitleaks", "semgrep", "checkov",
+}
+
+
+def _handler(capability: str, **kwargs) -> dict:
+    if capability != "shell.run":
+        raise ValueError(f"unsupported capability for shell tool: {capability}")
+
+    args: list[str] = kwargs["args"]
+    cwd: str = kwargs["cwd"]
+    timeout: int = kwargs.get("timeout", 60)
+
+    if not args:
+        raise ValueError("empty command")
+    if args[0] not in ALLOWED_BINARIES:
+        raise PermissionError(
+            f"binary '{args[0]}' is not in the shell tool allowlist {sorted(ALLOWED_BINARIES)}"
+        )
+
+    proc = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    return {
+        "ok": proc.returncode == 0,
+        "exit_code": proc.returncode,
+        # Phase 3 bug fix: this was `[-8000:]`, tuned for pytest's terse
+        # `-q` output. A real pip-audit/npm-audit `-f/--json` run against
+        # even a small number of vulnerable packages produces JSON well
+        # over 8000 characters (observed ~16KB scanning a single vulnerable
+        # package during Phase 3 development) - tail-truncating a JSON
+        # document corrupts it, and `json.loads` failing was silently
+        # swallowed by the scanner's `except json.JSONDecodeError` fallback
+        # to `{}`, making a real scan silently report "0 findings" on a
+        # known-vulnerable fixture. Caught by a manual end-to-end run, not
+        # a unit test (nothing exercised >8000 chars of stdout before
+        # Phase 3). Raised rather than removed so log/DB growth from a
+        # runaway command still has *some* bound.
+        "stdout": proc.stdout[-200_000:],
+        "stderr": proc.stderr[-20_000:],
+        "args": args,
+    }
+
+
+def build_shell_tool() -> Tool:
+    return Tool(
+        name="shell",
+        capabilities={"shell.run"},
+        risk=RiskLevel.HIGH,
+        description="Allowlisted command execution (pytest/python3/git only), no shell interpolation.",
+        handler=_handler,
+    )

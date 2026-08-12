@@ -1,0 +1,4 @@
+apiVersion: v2
+name: insecure-chart
+description: Phase 5 test fixture - DELIBERATELY INSECURE defaults.
+version: 0.1.0

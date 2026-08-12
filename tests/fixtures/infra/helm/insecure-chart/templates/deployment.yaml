@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-insecure
+spec:
+  replicas: {{ .Values.replicaCount }}
+  template:
+    spec:
+      hostNetwork: {{ .Values.hostNetwork }}
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          securityContext:
+            privileged: {{ .Values.securityContext.privileged }}

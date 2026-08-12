@@ -1,0 +1,74 @@
+# Phase 5 test fixture - DELIBERATELY INSECURE. Not deployed anywhere.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insecure-app
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: insecure-app
+  template:
+    metadata:
+      labels:
+        app: insecure-app
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+        - name: app
+          image: nginx:latest
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+            capabilities:
+              add: ["SYS_ADMIN", "NET_ADMIN"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: wildcard-everything
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: exposed
+spec:
+  type: NodePort
+  selector:
+    app: insecure-app
+  ports:
+    - port: 80
+      nodePort: 30080
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: committed-creds
+type: Opaque
+data:
+  # Fake fixture value: base64("fixture-not-a-real-password")
+  password: Zml4dHVyZS1ub3QtYS1yZWFsLXBhc3N3b3Jk
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: plaintext-ingress
+spec:
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: exposed
+                port:
+                  number: 80

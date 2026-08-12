@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: aep
+Version: 0.1.0
+Summary: Autonomous Engineering & DevSecOps Platform (Phase 1 core)
+Requires-Python: >=3.10
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: packaging>=21.0
+Provides-Extra: anthropic
+Requires-Dist: anthropic>=0.30.0; extra == "anthropic"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Provides-Extra: dependency-scanning
+Requires-Dist: pip-audit>=2.6; extra == "dependency-scanning"
