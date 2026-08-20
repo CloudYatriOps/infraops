@@ -19,7 +19,9 @@ implementation, no duplicated logic.
 """
 from __future__ import annotations
 
+import os
 import shutil
+import stat
 import subprocess
 import uuid
 from dataclasses import dataclass, field
@@ -34,7 +36,10 @@ from .skills.definitions import seed_canonical_skills
 from .skills.factory import build_skill_registry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DEMO_TEMPLATE_DIR = REPO_ROOT / "demo_project_template"
+# BUG-0014: same gap as MIGRATIONS_DIR - only resolves from a source
+# checkout, not a `pip install` of the built wheel. Escape hatch env var
+# for the same reason; see BUGFIX.md BUG-0014.
+DEMO_TEMPLATE_DIR = Path(os.environ.get("AEP_DEMO_TEMPLATE_DIR") or (REPO_ROOT / "demo_project_template"))
 
 FIXED_APP_PY = "def add(a, b):\n    return a + b\n"
 
@@ -92,7 +97,14 @@ def _materialize_demo_repo(dest_root: Path) -> Path:
     any other disposable fixture-based demo/test."""
     repo = dest_root / "demo_project"
     if repo.exists():
-        shutil.rmtree(repo)
+        # BUG-0013: git marks committed blob objects read-only; on Windows
+        # (unlike POSIX, where the containing directory's write permission
+        # is what governs deletion) `shutil.rmtree` fails on a read-only
+        # file with PermissionError. Clear the attribute and retry once.
+        def _on_rm_error(func, path, exc_info):
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        shutil.rmtree(repo, onerror=_on_rm_error)
     shutil.copytree(DEMO_TEMPLATE_DIR, repo, ignore=shutil.ignore_patterns(".git", "__pycache__"))
     _init_git_repo(repo)
     return repo
@@ -116,7 +128,9 @@ def run_demo(work_dir: Optional[str] = None, policy_path: Optional[str] = None,
     repo = _materialize_demo_repo(tmp_root)
     result.steps.append(f"materialized demo_project_template/ into real git repo at {repo}")
 
-    policy = policy_path or str(REPO_ROOT / "config" / "policy.yaml")
+    # Same BUG-0014 gap as MIGRATIONS_DIR/DEMO_TEMPLATE_DIR - REPO_ROOT
+    # doesn't exist for a wheel install.
+    policy = policy_path or os.environ.get("AEP_DEMO_POLICY_PATH") or str(REPO_ROOT / "config" / "policy.yaml")
 
     skill_registry = build_skill_registry(backend="fake", policy_path=policy)
     seed_canonical_skills(skill_registry)

@@ -50,7 +50,9 @@ PHASE6_MODULES = sorted(CICD_DIR.rglob("*.py")) + sorted(DEPLOYMENT_DIR.rglob("*
 
 
 def _sources(paths) -> dict[str, str]:
-    return {str(p.relative_to(SRC)): p.read_text() for p in paths}
+    # posix-style key regardless of OS, so string comparisons/allowlists
+    # below (e.g. "deployment/kubernetes_provider.py") work on Windows too.
+    return {p.relative_to(SRC).as_posix(): p.read_text() for p in paths}
 
 
 # ---- no model calls ---------------------------------------------------------

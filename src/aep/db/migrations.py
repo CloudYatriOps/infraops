@@ -31,12 +31,22 @@ Responsibilities (Stage A scope only):
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "supabase" / "migrations"
+# BUG-0014: this resolves to a real path only when running from a source
+# checkout (editable install or `python -m aep.cli` from the repo) - a
+# `pip install` of the built wheel does not carry `supabase/` along (it is
+# outside the `aep` package tree), so this falls through to a path that
+# doesn't exist. AEP_MIGRATIONS_DIR is an explicit escape hatch for that
+# case; packaging `supabase/migrations/*.sql` inside the wheel itself is
+# tracked as a real, not-yet-fixed release gap (see BUGFIX.md BUG-0014).
+MIGRATIONS_DIR = Path(os.environ.get("AEP_MIGRATIONS_DIR") or (
+    Path(__file__).resolve().parent.parent.parent.parent / "supabase" / "migrations"
+))
 
 
 class ChecksumMismatch(Exception):

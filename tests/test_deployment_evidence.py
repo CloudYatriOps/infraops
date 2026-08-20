@@ -51,11 +51,18 @@ def test_multiple_attempts_for_the_same_task_are_all_kept():
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         store = StateStore(f"{d}/s.db")
-        first = _sample_record(task_id="task-2")
-        first.final_state = DeploymentState.BLOCKED
-        record_deployment(store, "proj1", first)
-        second = _sample_record(task_id="task-2")
-        record_deployment(store, "proj1", second)
-        all_records = [r for r in list_deployment_evidence(store, "proj1") if r.task_id == "task-2"]
-        assert len(all_records) == 2
-        assert latest_deployment_evidence(store, "proj1", "task-2").final_state == DeploymentState.VERIFIED
+        try:
+            first = _sample_record(task_id="task-2")
+            first.final_state = DeploymentState.BLOCKED
+            record_deployment(store, "proj1", first)
+            second = _sample_record(task_id="task-2")
+            record_deployment(store, "proj1", second)
+            all_records = [r for r in list_deployment_evidence(store, "proj1") if r.task_id == "task-2"]
+            assert len(all_records) == 2
+            assert latest_deployment_evidence(store, "proj1", "task-2").final_state == DeploymentState.VERIFIED
+        finally:
+            # Windows holds an exclusive lock on the sqlite file until the
+            # connection is explicitly closed - unlike POSIX, where an open
+            # file can still be unlinked - so TemporaryDirectory's own
+            # cleanup fails here without this.
+            store.close()

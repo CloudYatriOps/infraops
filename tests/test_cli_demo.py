@@ -14,7 +14,7 @@ def _run(*args, timeout=60):
     env["PYTHONPATH"] = "src"
     return subprocess.run(
         [sys.executable, "-m", "aep.cli", *args],
-        cwd="/home/claude/aep-platform",
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         env=env,
         capture_output=True, text=True, timeout=timeout,
     )

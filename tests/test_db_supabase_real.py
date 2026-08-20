@@ -1,11 +1,10 @@
 """SEPARATE, clearly-labeled test class attempting a REAL connection to
-the actual Supabase project for AEP. Reads credentials only from
-/home/claude/.secrets/aep_supabase.env (never printed/logged - only
-success/failure of the read is reported). This is expected to be
-skipped/blocked given this sandbox's confirmed egress-proxy 403 to
-*.supabase.co, but the test code itself is real and would work in an
-environment where that network path is open. Never fakes a passing
-result."""
+the actual Supabase project for AEP. Reads credentials only from the path
+in AEP_SUPABASE_SECRETS_PATH (never printed/logged - only success/failure
+of the read is reported). This is expected to be skipped/blocked absent a
+real secrets file and open network path to *.supabase.co, but the test
+code itself is real and would work in an environment where that network
+path is open. Never fakes a passing result."""
 from __future__ import annotations
 
 import os
@@ -14,7 +13,10 @@ import re
 import psycopg2
 import pytest
 
-SECRETS_PATH = "/home/claude/.secrets/aep_supabase.env"
+SECRETS_PATH = os.environ.get(
+    "AEP_SUPABASE_SECRETS_PATH",
+    os.path.expanduser("~/.secrets/aep_supabase.env"),
+)
 
 
 def _load_supabase_env() -> dict:

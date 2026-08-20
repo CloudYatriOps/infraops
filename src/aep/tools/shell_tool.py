@@ -9,7 +9,10 @@ execution just because an agent read it.
 """
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+import sys
 
 from ..models import RiskLevel
 from ..tool_registry import Tool
@@ -44,7 +47,20 @@ def _handler(capability: str, **kwargs) -> dict:
             f"binary '{args[0]}' is not in the shell tool allowlist {sorted(ALLOWED_BINARIES)}"
         )
 
-    proc = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    # BUG-0012: allowlisted binaries like "pytest" are console scripts
+    # installed into the CURRENT interpreter's own bin/Scripts directory.
+    # That directory is only on PATH if the venv was `activate`d - a step
+    # the installed-CLI workflow does not require. Resolve the allowlisted
+    # name (still checked by name above, never widened) against PATH plus
+    # the interpreter's own bin/Scripts dir, and exec the resolved absolute
+    # path - `subprocess`'s own executable search on Windows only consults
+    # the real process `os.environ`, not an `env=` override, so passing an
+    # augmented `env` alone (without this) silently keeps failing.
+    search_path = os.path.dirname(sys.executable) + os.pathsep + os.environ.get("PATH", "")
+    resolved = shutil.which(args[0], path=search_path) or args[0]
+    exec_args = [resolved] + args[1:]
+
+    proc = subprocess.run(exec_args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
     return {
         "ok": proc.returncode == 0,
         "exit_code": proc.returncode,

@@ -80,7 +80,12 @@ def _read_text(path: Path) -> tuple[str, str]:
     try:
         if path.stat().st_size > _MAX_PROBE_BYTES:
             return "", f"file exceeds {_MAX_PROBE_BYTES} byte probe limit; discovered but not parsed"
-        return path.read_text(), ""
+        # Explicit encoding="utf-8": Path.read_text()'s default is the
+        # platform's locale encoding, which on Windows is often cp1252 -
+        # a near-universal decoder that silently "succeeds" on genuinely
+        # binary/non-utf8 content this function is meant to flag as
+        # unreadable, unlike a strict-UTF-8 Linux default locale.
+        return path.read_text(encoding="utf-8"), ""
     except (UnicodeDecodeError, ValueError):
         return "", "binary or non-utf8 content"
     except OSError as e:
@@ -125,7 +130,7 @@ def discover_infrastructure(project_root: str) -> InfraInventory:
         # ---- Helm charts: a directory is a chart iff it has Chart.yaml ----
         if "Chart.yaml" in filenames:
             seen_helm_chart_dirs.add(current)
-            rel = str(current.relative_to(root)) or "."
+            rel = (str(current.relative_to(root)) or ".").replace(os.sep, "/")
             env, confidence = infer_environment(rel)
             content, err = _read_text(current / "Chart.yaml")
             name = ""
@@ -143,7 +148,7 @@ def discover_infrastructure(project_root: str) -> InfraInventory:
 
         for filename in filenames:
             full = current / filename
-            rel = str(full.relative_to(root))
+            rel = str(full.relative_to(root)).replace(os.sep, "/")
             env, confidence = infer_environment(rel)
             suffix = full.suffix.lower()
 
@@ -289,7 +294,7 @@ def discover_infrastructure(project_root: str) -> InfraInventory:
                              for other in terraform_dirs)
         is_module = parent_has_tf or "/modules/" in f"/{normalized}/" or normalized.endswith("/modules")
         inventory.assets.append(InfraAsset(
-            path=rel,
+            path=normalized,
             kind=AssetKind.TERRAFORM_MODULE if is_module else AssetKind.TERRAFORM_ROOT,
             environment=env, environment_confidence=confidence,
             detail=f"{len(terraform_dirs[tf_dir])} .tf file(s): "

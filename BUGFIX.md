@@ -1,5 +1,433 @@
 # Bug Fixes
 
+## BUG-0017: two test-only Windows robustness gaps (sqlite file lock, `curl` exception type)
+
+- **Date:** 2026-08-20
+- **Component:** `tests/test_deployment_evidence.py`, `tests/test_cicd_github_actions.py`; found running the full release-gate suite on this machine.
+
+### Symptom
+1. `test_multiple_attempts_for_the_same_task_are_all_kept` opens a
+   `StateStore` (sqlite) inside a `tempfile.TemporaryDirectory()` block
+   and never calls `store.close()`. On POSIX, an open file can still be
+   unlinked; Windows holds an exclusive lock until the connection object
+   is closed, so `TemporaryDirectory.__exit__`'s cleanup raised
+   `PermissionError` deleting `s.db`.
+2. `test_live_github_actions_api_is_actually_blocked_from_this_sandbox`
+   already catches `(subprocess.TimeoutExpired, FileNotFoundError)` around
+   its `curl` invocation "for CI runners where curl is unavailable" - but
+   on this machine, invoking `curl` raised `PermissionError` (an
+   execution-policy block, not a missing binary), which the narrower
+   except clause didn't cover.
+
+### Impact
+Neither is a production defect - both are test-harness gaps that made two
+otherwise-passing tests fail on this specific machine for reasons
+unrelated to what they're actually verifying.
+
+### Root cause
+(1) missing `store.close()` before the temp directory's own cleanup.
+(2) except clause narrower than its own stated intent ("curl unavailable
+... not what this test is verifying" logically covers any `OSError`
+launching the binary, not just `FileNotFoundError`).
+
+### Fix
+(1) wrapped the test body in `try/finally: store.close()`. (2) widened
+the except clause to `(subprocess.TimeoutExpired, OSError)`.
+
+### Tests
+Both files re-run — all 7 tests across the two files pass.
+
+### Lesson
+A sqlite connection opened inside a `tempfile.TemporaryDirectory()` block
+must be explicitly closed before the block exits - this only surfaces on
+Windows, so a test suite developed exclusively on POSIX won't catch it
+until run cross-platform.
+
+## BUG-0016: infra discovery used OS-native path separators and platform-default text decoding
+
+- **Date:** 2026-08-20
+- **Component:** `src/aep/infra/discovery.py`, found running the full release-gate suite on this machine (`test_infra_discovery.py` — 7 failures).
+
+### Symptom
+Two distinct defects in the same file:
+1. `InfraAsset.path` was built from `str(some_path.relative_to(root))` in
+   three of four call sites (Helm chart dirs, generic files, Terraform
+   root/module dirs) with no separator normalization, so on Windows an
+   asset's `path` was `"envs\\prod"` instead of `"envs/prod"` - every test
+   asserting an exact posix-style relative path failed, and any
+   downstream code/UI comparing paths against a posix-style value (CLI
+   output, roadmap capability matching, etc.) would silently mismatch.
+   The 4th call site (CI-workflow-directory detection) already correctly
+   normalized with `.replace(os.sep, "/")`, but only used that normalized
+   value locally - the stored `InfraAsset.path` for the Terraform root/
+   module case still used the un-normalized one.
+2. `_read_text()` called `path.read_text()` with no explicit `encoding=`,
+   so it decoded under the platform's default locale encoding - UTF-8 on
+   this project's Linux dev sandbox (where genuinely binary content
+   correctly raised `UnicodeDecodeError` and got flagged `unreadable`),
+   but Windows' default (commonly cp1252) can decode nearly any byte
+   sequence without raising, so the same binary fixture silently
+   "succeeded" and was never flagged.
+
+### Impact
+(1) means any consumer of infra-discovery asset paths that assumes
+posix-style separators (tests, and potentially the API/UI layer) breaks
+on Windows. (2) means the "unreadable files are recorded, not silently
+skipped" guarantee this function exists to provide silently doesn't hold
+on Windows for exactly the class of file (binary/non-UTF-8) it's meant to
+catch.
+
+### Root cause
+Path-to-string conversion without `.replace(os.sep, "/")` at 3 of 4 call
+sites; `read_text()` without pinning `encoding="utf-8"`.
+
+### Fix
+Normalized all `rel`/`path` constructions in `_discover` to
+`.replace(os.sep, "/")` (Helm chart dir, generic file loop, and the
+Terraform root/module loop - the last of which already computed a
+`normalized` variable for its own `is_module` check but was still storing
+the un-normalized `rel` on the asset; now stores `normalized`). Pinned
+`_read_text()` to `encoding="utf-8"`.
+
+### Tests
+`tests/test_infra_discovery.py` (12 tests) re-run — all pass (was 7
+failing before this fix, on this machine).
+
+### Lesson
+A relative path computed once and reused inconsistently (normalized for
+a substring check, un-normalized for the stored field) is a common way a
+partial fix hides a real bug - always trace every use of a `rel`-shaped
+variable, not just the first one you find, and default every `read_text`/
+`open` in cross-platform code to an explicit `encoding=` rather than the
+platform locale.
+
+## BUG-0015: progress engine invoked bare `"python3"`, silently reporting every phase `NOT_STARTED` on Windows
+
+- **Date:** 2026-08-20
+- **Component:** `src/aep/progress/calculator.py::_run_pytest_per_file`, found running the full release-gate suite on this machine (`test_progress_engine.py`, `test_cli_status.py` — 8 failures).
+
+### Symptom
+`compute_progress()` runs the roadmap's referenced test files once via
+`subprocess.run(["python3", "-m", "pytest", ...])` and parses the
+resulting JUnit XML. On this machine, `"python3"` either isn't resolvable
+or resolves to an unrelated interpreter with no `pytest` installed, so the
+subprocess produces no valid JUnit XML; the existing
+`except (..., FileNotFoundError, OSError)`/`except ET.ParseError` handlers
+(deliberately there so a real crash never gets misreported as a false
+"complete") both quietly return `{t: (0, 0) for t in test_paths}` -
+zero passed, zero failed, for every capability. Every phase then computed
+`NOT_STARTED` instead of `COMPLETE`, and `aep status --json`'s capability
+counts were wrong in the same way - not a crash, a **silently wrong
+progress number**, exactly the kind of fabricated-looking output this
+project's own rule against invented percentages exists to prevent.
+
+### Impact
+The platform's own headline "overall engineering completion %" - the
+number this project's release process reports at every step - would read
+as far lower than reality on any machine where a bare `python3` doesn't
+resolve to the running interpreter, silently, with no error surfaced.
+
+### Root cause
+Hardcoded `"python3"` instead of `sys.executable` - the same class of bug
+as BUG-0012, but here there is no allowlist to preserve (this is an
+internal implementation detail of the progress engine, not a
+security-gated `shell.run` call), so the fix is the direct one.
+
+### Fix
+Changed to `[sys.executable, "-m", "pytest", ...]` in
+`_run_pytest_per_file`.
+
+### Tests
+`tests/test_progress_engine.py` (8 tests) and `tests/test_cli_status.py`
+(2 of the tests that were failing) re-run — all pass.
+
+### Lesson
+A defensive `except` that silently falls back to a "safe-looking" zero
+result is right to exist (a real pytest crash must never look like a
+false completion), but it also means an interpreter-resolution bug here
+produces no error at all - only a suspiciously-lower number. Worth
+grepping for every other bare interpreter-name subprocess call in the
+codebase when auditing cross-platform behavior, not just the ones that
+visibly crash.
+
+## BUG-0014: migrations and the demo fixture are not packaged inside the wheel — only work from a source checkout
+
+- **Date:** 2026-08-20
+- **Component:** `src/aep/db/migrations.py::MIGRATIONS_DIR`, `src/aep/demo.py::DEMO_TEMPLATE_DIR`; found building a real wheel and installing it into a genuinely fresh venv (Step 6/8/9 of this release pass), not assumed.
+
+### Symptom
+Both constants are computed as `Path(__file__).resolve().parent...parent`,
+walking up from the installed module's location to what is *assumed* to
+be the repo root, then appending `supabase/migrations` or
+`demo_project_template`. Built `aep-0.1.0-py3-none-any.whl`, installed it
+into a brand-new venv with no source checkout present, and confirmed
+directly:
+```
+from aep.db.migrations import MIGRATIONS_DIR
+MIGRATIONS_DIR         # .../site-packages/supabase/migrations
+MIGRATIONS_DIR.exists()  # False
+from aep.demo import DEMO_TEMPLATE_DIR
+DEMO_TEMPLATE_DIR.exists()  # False
+```
+`aep --help` and every subcommand not touching migrations/the demo work
+fine from the wheel install — this is not a full breakage, but migration
+apply/verify and `aep demo run`/`demo readiness` cannot function from a
+plain `pip install` of the wheel.
+
+### Impact
+Corrects an over-broad prior claim in this file/`handoff.md` that "clean
+venv installation produced a working `aep`" — that was true for
+`aep --help`/import, but migrations and the demo path were never
+independently re-verified from an actual wheel install until this pass.
+`supabase/migrations/` is referenced as "the single source of truth" in
+~15 other files (`docs/DATABASE.md`, `ARCHITECTURE.md`, most of
+`src/aep/intelligence/*.py`); physically relocating it into `src/aep/` to
+make it wheel-packageable is a much larger, riskier change than this
+pass's scope justifies without explicit sign-off, so it is NOT done here.
+
+### Root cause
+`supabase/migrations/` and `demo_project_template/` both live outside
+`src/aep/` (the only tree `[tool.setuptools.packages.find]` packages into
+the wheel), so nothing ships them - a plain `pip install .` (no `-e`) has
+no way to find them relative to the installed module.
+
+### Fix (partial, honestly scoped)
+Added `AEP_MIGRATIONS_DIR`/`AEP_DEMO_TEMPLATE_DIR`/`AEP_DEMO_POLICY_PATH`
+environment variable overrides (the third, `run_demo`'s default
+`config/policy.yaml` lookup, is the identical gap, found live when this
+fix was verified against an actual wheel install), so an operator
+installing the wheel can point them at wherever they've placed a copy of
+these directories (e.g. alongside a deployment). This does NOT make the
+wheel self-contained -
+that requires either moving both directories under `src/aep/` (schema/
+demo-fixture relocation, a real but separate change) or a build step that
+copies them in as package data. Documented as a known, current limitation
+rather than silently left to fail with a confusing stack trace.
+
+### Tests
+Reproduced live: fresh venv, `pip install dist/aep-0.1.0-py3-none-any.whl`,
+confirmed both paths missing before the fix; confirmed
+`AEP_MIGRATIONS_DIR=<real path>` / `AEP_DEMO_TEMPLATE_DIR=<real path>` make
+both resolve correctly after.
+
+### Lesson
+`pip install -e .` (editable) and `pip install <wheel>` are different
+enough that a resource-path assumption ("N `.parent`s up from `__file__`
+lands on the repo root") can pass under the former and silently fail
+under the latter - Step 6 of a packaging release ("build wheel, install
+in a fresh venv, re-verify") exists specifically to catch this class of
+bug, and did.
+
+## BUG-0013: `aep demo run` crashes on Windows re-run — `shutil.rmtree` can't delete git's read-only blob objects
+
+- **Date:** 2026-08-20
+- **Component:** `src/aep/demo.py::_materialize_demo_repo`, discovered running `aep demo run` a second time on the local Windows machine.
+
+### Symptom
+`PermissionError: [WinError 5] Access is denied` deleting a file under
+`demo_project/.git/objects/...` on the second `aep demo run`.
+BUG-0003 already made this idempotent on POSIX (delete-then-recopy the
+leftover `demo_project/` dir), but git marks committed blob objects
+read-only, and unlike POSIX (where the containing directory's write bit
+governs deletion regardless of the file's own mode), Windows honors the
+file's own read-only attribute — `shutil.rmtree` has no built-in handling
+for that and raises.
+
+### Impact
+`aep demo run` — the CEO-demo happy path — cannot be re-run twice on
+Windows using the documented default work dir, directly contradicting
+BUG-0003's "must not crash on the second invocation" fix, which was only
+ever verified on POSIX.
+
+### Root cause
+`shutil.rmtree(repo)` with no error handler; Windows requires clearing
+`stat.S_IWRITE` on a read-only file before it can be unlinked.
+
+### Fix
+Added an `onerror` handler to the existing `shutil.rmtree` call that
+clears the read-only attribute and retries the delete once, before
+recopying the fixture. No change to the POSIX path (the handler is only
+ever invoked when a delete actually fails).
+
+### Tests
+`aep demo run` run twice in a row on this machine (`--db-backend sqlite`,
+no local PostgreSQL available here) — second run no longer crashes,
+completes materialize → skills → policy → AI routing → security scan →
+fix → re-scan → fix-bug graph, same as the first run.
+
+### Lesson
+A "no SQLite fallback"/"idempotent re-run" fix verified only on the
+original POSIX sandbox is not proven cross-platform — Windows and POSIX
+disagree on which side (file vs. directory) owns the delete-permission
+check for a read-only file.
+
+## BUG-0012: `shell.run`'s allowlisted binaries (`pytest`, etc.) fail to resolve unless the venv is activated
+
+- **Date:** 2026-08-20
+- **Component:** `src/aep/tools/shell_tool.py`, discovered running the demo's `run_tests` task from a genuinely fresh (never-activated) venv on the local machine.
+
+### Symptom
+`aep demo readiness`/`aep demo run` reported the `run_tests` task
+`QUARANTINED` (circuit-breaker-tripped after repeated failure) even though
+`pytest` was correctly installed via the `dev` extra. `shell_tool._handler`
+calls `subprocess.run(args, cwd=cwd, ...)` with no explicit `env`, so
+`args[0] == "pytest"` resolves via the *current process's* inherited
+`PATH` — which only contains the venv's `Scripts/`/`bin` directory
+(where `pytest`'s console-script shim actually lives) if the venv was
+`activate`d first.
+
+Tried anchoring to `sys.executable -m pytest` instead of a bare name
+first; that broke `shell_tool.ALLOWED_BINARIES`'s exact-name allowlist
+check (`args[0]` became an absolute interpreter path, not `"pytest"`),
+correctly producing `BLOCKED_ON_APPROVAL` — the allowlist is a deliberate
+security boundary (ARCHITECTURE.md §16) and must not be loosened to admit
+arbitrary absolute paths. Reverted that approach.
+
+### Impact
+Directly contradicts this release's Step 11 requirement ("Quick Start
+must NOT require users to manually activate a virtualenv") — the demo's
+own `run_tests` step would silently fail on exactly the installed-CLI,
+no-activation workflow the release is meant to support.
+
+### Root cause
+`subprocess.run` inherited `PATH` unmodified; nothing put the running
+interpreter's own bin/Scripts directory (where every allowlisted
+console-script binary from this same install actually lives) on that
+`PATH`.
+
+### Fix
+`shell_tool._handler` now resolves `args[0]` via `shutil.which(name,
+path=...)` against `PATH` plus `os.path.dirname(sys.executable)`, then
+executes that resolved absolute path. (An earlier attempt just passed an
+augmented `env=` to `subprocess.run` — that alone does not work on
+Windows, where `subprocess`'s own executable search consults the real
+process `os.environ`, not an `env=` override; confirmed by reproducing
+the exact `FileNotFoundError` this produced before switching to
+`shutil.which`.) `ALLOWED_BINARIES` and the `args[0]` allowlist check are
+unchanged and still run against the original bare name — this only fixes
+*resolution* of an already-allowlisted name, it does not admit anything
+new. The evidence/result payload still reports the original logical
+`args`, not the resolved absolute path.
+
+### Tests
+`tests/test_end_to_end_demo.py` (2 tests) re-run from a fresh,
+never-activated venv — both pass; `run_tests` task now `SUCCEEDED`.
+
+### Lesson
+An allowlist that checks `args[0]` by exact name is right to reject an
+absolute-path rewrite of the command; the correct fix for
+activation-dependent `PATH` resolution is to fix `PATH` for the
+subprocess, not to change what's being executed.
+
+**Addendum, found running the full release-gate suite on this machine:**
+`tests/test_dependency_scanning.py`'s own `_make_run_shell` helper
+(deliberately mirrors `DependencyCVEAgent._run_shell`, not
+`shell_tool.py`) had the identical bare-name resolution problem, one
+step worse on Windows: `npm` there is really `npm.cmd`, and an
+unresolved bare name raises `FileNotFoundError` inside a
+`@pytest.mark.skipif(not npm_audit_scanner.is_available(...))` guard -
+which runs at collection time, so it crashed collecting the *entire*
+suite, not just this one test. Applied the same `shutil.which` resolution
+there, plus a `try/except` around the subprocess call so a genuinely
+unavailable binary now falls through to a clean `is_available() ->
+False`/skip instead of an uncaught exception. Full suite re-run
+afterward: collection succeeds.
+
+## BUG-0011: dev-sandbox-only paths still present in the tracked repo (`src/aep.egg-info/`, `test_db_supabase_real.py`)
+
+- **Date:** 2026-08-20
+- **Component:** `.gitignore`/git index, `tests/test_db_supabase_real.py`; discovered during the local-machine portability audit (`grep` for `/home/`, `C:\Users\`).
+
+### Symptom
+1. `src/aep.egg-info/` (a generated build artifact `.gitignore` already
+   matches via `*.egg-info/`) was nonetheless tracked in the git index
+   from before the ignore rule existed, so every local build re-dirties
+   `git status` with generated content.
+2. `tests/test_db_supabase_real.py` hardcoded
+   `SECRETS_PATH = "/home/claude/.secrets/aep_supabase.env"` — a
+   dev-sandbox-only absolute path that can never exist on any other
+   machine, including this one.
+
+### Impact
+(1) is repo hygiene noise, not a functional bug, but it means a build on
+any machine perpetually shows a dirty `git status`. (2) means the "real
+Supabase" test path is untestable anywhere except the original sandbox
+even when a real Supabase secrets file legitimately exists elsewhere.
+
+### Root cause
+The egg-info directory was committed once before the `*.egg-info/`
+ignore rule was added and never `git rm --cached`. The Supabase test path
+was written against this one sandbox's fixed layout instead of an
+env-configurable path.
+
+### Fix
+`git rm --cached -r src/aep.egg-info` (ignore rule already covers it, no
+`.gitignore` change needed). `SECRETS_PATH` now reads
+`AEP_SUPABASE_SECRETS_PATH` env var, falling back to
+`~/.secrets/aep_supabase.env` (portable, still opt-in/skips cleanly when
+absent).
+
+### Tests
+`tests/test_db_supabase_real.py` re-run standalone — same skip/blocked
+behavior as before (no secrets file present), now via the portable
+default path.
+
+### Lesson
+`.gitignore` only prevents new files from being tracked — it does nothing
+for a path already committed before the rule existed; an audit needs an
+explicit `git ls-files | grep <ignored-pattern>` check, not just a read of
+`.gitignore` itself.
+
+## BUG-0010: `aep` CLI documented as a bare command but no console-script entry point existed
+
+- **Date:** 2026-08-20
+- **Component:** `pyproject.toml`, discovered during final release-packaging clean-install verification.
+
+### Symptom
+`README.md`/`docs/QUICKSTART.md`/`docs/DEMO-CARD.md` all document running
+`aep demo readiness`, `aep status`, `aep providers`, etc. as a bare `aep`
+command. `pyproject.toml` had no `[project.scripts]` entry point mapping
+`aep` to `aep.cli:main`. A genuinely fresh `pip install -e .` (verified in
+a scratch venv with no pre-existing shims) produces no `aep` executable at
+all — `which aep`/`aep --help` both fail with "command not found"; only
+`python -m aep.cli ...` works. Also discovered 3 test files
+(`test_cli_runtime_status.py`, `test_cli_skills.py`, `test_cli_demo.py`)
+hardcoded `cwd="/home/claude/aep-platform"` in their subprocess calls,
+which would fail on any machine/CI where the repo isn't cloned to that
+exact path.
+
+### Impact
+Every documented Quick Start command using bare `aep ...` would have
+failed with "command not found" on a clean machine, directly contradicting
+this release's reproducibility goal. The 3 test files would fail outside
+this sandbox's exact path, meaning "clean-machine simulation" would report
+false failures on another machine even though the code itself is correct.
+
+### Root cause
+`aep.cli:main` was always invoked via `python -m aep.cli` inside this
+sandbox during development, so the missing console-script entry point was
+never noticed; the 3 test files were written against this sandbox's fixed
+path rather than deriving the repo root from `__file__`.
+
+### Fix
+Added `[project.scripts]\naep = "aep.cli:main"` to `pyproject.toml`.
+Replaced the 3 hardcoded `cwd="/home/claude/aep-platform"` occurrences
+with `cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`
+(repo root derived from the test file's own location).
+
+### Tests
+Re-ran all 16 tests across the 3 affected files after the path fix — all
+pass. Verified in a fresh scratch venv that `pip install -e .` now
+produces a working `aep --help`/`aep status`/`aep demo readiness` as bare
+commands.
+
+### Lesson
+"Runs inside this dev sandbox" and "reproducible on a clean machine" are
+different claims — a console-script entry point and hardcoded dev-sandbox
+paths in tests are exactly the kind of thing that only surfaces under an
+actual clean-install/different-machine simulation, never under repeated
+use of the same long-lived dev environment.
+
 ## BUG-0009: `.gitignore` missing `node_modules/`, `.venv/`, `.env`
 
 - **Date:** 2026-08-20

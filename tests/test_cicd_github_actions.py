@@ -68,7 +68,10 @@ def test_live_github_actions_api_is_actually_blocked_from_this_sandbox():
              "https://api.github.com/repos/octocat/hello-world/actions/runs"],
             capture_output=True, text=True, timeout=15,
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return  # curl unavailable in some CI runners - not what this test is verifying
+    except (subprocess.TimeoutExpired, OSError):
+        # curl unavailable/blocked in some CI runners or local machines
+        # (e.g. PermissionError from an execution policy) - not what this
+        # test is verifying; OSError covers FileNotFoundError too.
+        return
     code = result.stdout.strip()
     assert code in ("403", "000"), f"expected the sandbox's known block (403/000), got {code!r}"

@@ -8,6 +8,7 @@ recursion `test_cli_status.py` guards against.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 
@@ -21,7 +22,7 @@ def _run(db_path, *args):
     # what used to be the implicit default.
     return subprocess.run(
         [sys.executable, "-m", "aep.cli", "--db", str(db_path), *args],
-        cwd="/home/claude/aep-platform",
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin", "AEP_DB_BACKEND": "sqlite"},
         capture_output=True, text=True, timeout=60,
     )

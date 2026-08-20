@@ -43,6 +43,12 @@ infra = [
 sbom = ["cyclonedx-python-lib>=7.0"]
 # src/aep/github/client.py - real GitHub API HTTP client.
 github = ["requests>=2.31"]
+# Union of every real optional integration (excludes `dev`, which is
+# test-tooling only, not a runtime capability).
+all = ["aep[anthropic,dependency-scanning,api,infra,sbom,github]"]
+
+[project.scripts]
+aep = "aep.cli:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

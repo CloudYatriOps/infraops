@@ -27,6 +27,7 @@ can never read as COMPLETE - see `_capability_status`.
 from __future__ import annotations
 
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -124,7 +125,7 @@ def _run_pytest_per_file(repo_root: str, test_paths: list[str],
     try:
         try:
             subprocess.run(
-                ["python3", "-m", "pytest", "-q", "--tb=no", f"--junitxml={junit_path}", *test_paths],
+                [sys.executable, "-m", "pytest", "-q", "--tb=no", f"--junitxml={junit_path}", *test_paths],
                 cwd=repo_root, capture_output=True, text=True, timeout=timeout,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):

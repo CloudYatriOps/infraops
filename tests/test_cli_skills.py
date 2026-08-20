@@ -6,6 +6,7 @@ tests have zero network/Postgres dependency and never touch the real
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 
@@ -13,7 +14,7 @@ import sys
 def _run(*args):
     return subprocess.run(
         [sys.executable, "-m", "aep.cli", *args],
-        cwd="/home/claude/aep-platform",
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin"},
         capture_output=True, text=True, timeout=60,
     )

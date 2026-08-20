@@ -8,6 +8,7 @@ document for ecosystems this sandbox can't reach.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 
 import pytest
@@ -20,8 +21,19 @@ def _make_run_shell(default_cwd):
     """Mirrors DependencyCVEAgent._run_shell: scanners may omit `cwd` and
     expect it to default to the project root they were invoked against."""
     def run(args, cwd=None, timeout=60):
-        proc = subprocess.run(args, cwd=cwd or default_cwd, capture_output=True, text=True,
-                               timeout=timeout)
+        # BUG-0012-class fix, test-helper side: on Windows, `npm` is really
+        # `npm.cmd`, and `subprocess.run` without `shell=True` raises
+        # FileNotFoundError for a bare name it can't launch directly - which
+        # crashed pytest COLLECTION (the skipif itself calls this), not just
+        # the test body. Resolve the name first; if it doesn't resolve at
+        # all, let is_available()/the caller see a clean non-zero failure
+        # instead of an uncaught exception.
+        resolved = shutil.which(args[0]) or args[0]
+        try:
+            proc = subprocess.run([resolved] + args[1:], cwd=cwd or default_cwd,
+                                   capture_output=True, text=True, timeout=timeout)
+        except (FileNotFoundError, OSError) as exc:
+            return {"ok": False, "exit_code": -1, "stdout": "", "stderr": str(exc), "args": args}
         return {"ok": proc.returncode == 0, "exit_code": proc.returncode,
                 "stdout": proc.stdout, "stderr": proc.stderr, "args": args}
     return run

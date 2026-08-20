@@ -1082,3 +1082,104 @@ NOT re-run the full suite again, since nothing changed since it last ran
 clean - re-running an unchanged 827-test, ~11-minute suite for no reason
 would itself be the kind of wasted repeated execution this project's
 testing policy exists to avoid.
+
+## Local-machine release verification (this session) — first real run on the actual Windows machine
+
+Everything above was verified in a Linux dev sandbox. This session ran the
+release-packaging checklist for real on the user's actual Windows machine
+(`C:\Users\KaranParmar\Github\DevOps\infraops\`) for the first time -
+several claims above ("clean venv installation produced working `aep`")
+turned out to only have been checked for `aep --help`, not migrations/
+demo/full suite. Found and fixed 6 new genuine defects (BUG-0011 through
+BUG-0017, see BUGFIX.md for full detail on each):
+
+- BUG-0011: dev-sandbox-only paths still tracked/hardcoded
+  (`src/aep.egg-info/` untracked from git; Supabase test secrets path made
+  env-configurable).
+- BUG-0012: `shell.run`'s allowlisted binaries (`pytest` etc.) failed to
+  resolve without venv activation - fixed via `shutil.which` resolution
+  in `shell_tool.py` (allowlist itself untouched).
+- BUG-0013: `aep demo run` crashed on a second Windows run - git's
+  read-only blob objects can't be `shutil.rmtree`d without clearing the
+  attribute first.
+- BUG-0014 (partial/honest, NOT fully closed): migrations
+  (`supabase/migrations/`) and the demo fixture
+  (`demo_project_template/`) are not packaged inside the wheel - only
+  work from a source checkout. Added `AEP_MIGRATIONS_DIR`/
+  `AEP_DEMO_TEMPLATE_DIR`/`AEP_DEMO_POLICY_PATH` env-var escape hatches
+  and verified them working from a real wheel install end-to-end
+  (`aep demo run` succeeds this way). Making the wheel fully
+  self-contained (moving these under `src/aep/`) is a larger, separate
+  change, not done here.
+- BUG-0015: progress engine's `_run_pytest_per_file` invoked bare
+  `"python3"` instead of `sys.executable` - silently reported every phase
+  `NOT_STARTED` on this machine (not a crash - a wrong number).
+- BUG-0016: infra discovery stored OS-native path separators in
+  `InfraAsset.path` at 3 of 4 call sites, and `_read_text()` decoded under
+  the platform-default locale encoding instead of pinned UTF-8.
+- BUG-0017: two test-only Windows gaps (unclosed sqlite connection inside
+  a `TemporaryDirectory`, an except clause narrower than its own stated
+  intent).
+
+Also added a real `all` extra to `pyproject.toml` (`pip install ".[all]"`
+- previously undefined despite being the release's documented install
+command) and an `[project.scripts] aep = ...` verification pass.
+
+**Verified, live, on this machine (not assumed):**
+- `pip install -e ".[all]"` into a genuinely fresh venv - clean, `aep
+  --help` works.
+- `aep demo run --db-backend sqlite` - full happy-path lifecycle
+  succeeds, twice in a row (idempotency confirmed post BUG-0013 fix).
+- `aep demo run --scenario ambiguous` - correctly REFUSED, nothing
+  executed.
+- Built wheel + sdist (`python -m build`) - both clean, no secrets, no
+  dev-machine paths, no node_modules/`.env`/caches inside either.
+- Installed the built wheel into a SEPARATE fresh venv (no source
+  checkout referenced) - `aep --help` works; `aep demo run` succeeds
+  using the BUG-0014 env-var escape hatches.
+- `ui/`: `npm ci` + `npm run build` (`tsc -b && vite build`) - clean, 0
+  errors.
+- Playwright/browser UI verification: **UNAVAILABLE this pass** - not
+  because tooling is missing, but because the product API requires real
+  PostgreSQL (`create_app()` unconditionally opens a Postgres connection
+  pool regardless of `db_backend`, by design - "no silent SQLite
+  fallback"), and this machine has no PostgreSQL server installed at all
+  (confirmed: no `pg_ctl`/`psql` on PATH, no `postgresql-x64-*` service).
+  Did the strongest available alternative instead: clean UI build/
+  typecheck.
+- Full regression suite, run twice (once before the fixes above, once
+  after): **698 passed, 121 skipped, 3 failed, 6 errors** (final run,
+  this machine) - every remaining failure/error is a genuine,
+  machine-specific environment fact, not a code defect:
+  - `test_cli_demo.py::test_demo_run_happy_path_end_to_end` and all 6
+    `test_skills_db_postgres.py` cases - no local PostgreSQL server
+    installed on this machine (same root cause as the Playwright gap
+    above).
+  - `test_deployment_kubernetes_provider.py` (2 tests) - this machine
+    actually HAS `kubectl.exe` installed (Docker Desktop), unlike the
+    original sandbox where it was genuinely absent, so the provider
+    correctly reports `BLOCKED` (binary present, no reachable cluster)
+    instead of the tests' hardcoded expectation of `UNAVAILABLE` (binary
+    absent) - this is the provider behaving *correctly* for this
+    machine's actual state, not a regression.
+- Secret scan: wheel + sdist + `.env.example` + docs - clean (only hit:
+  AWS's own documented example key `AKIAIOSFODNN7EXAMPLE` in a scanner
+  test fixture).
+- Committed to git: `src/aep.egg-info/` untracked (generated build
+  artifact that predated the `*.egg-info/` ignore rule).
+
+**Not done this pass (explicitly out of scope / needs a decision):**
+- Installing a local PostgreSQL server on this machine - a real
+  infra/environment change, not a code fix; left for the user to decide
+  since it's a system-level install.
+- Fully closing BUG-0014 (moving `supabase/migrations/`/
+  `demo_project_template/` under `src/aep/` so a wheel install needs zero
+  env vars) - `supabase/migrations/` is referenced as "the single source
+  of truth" in ~15 other files; relocating it is a real, separate,
+  higher-blast-radius change.
+- Git push - not done without explicit confirmation per this session's
+  safety rules; commit only.
+
+**Deployability: unchanged, `INTEGRATION_READY`.** No phase-completion
+tier changed - the 6 bugs fixed this pass are packaging/portability
+correctness fixes, not new roadmap capabilities.
