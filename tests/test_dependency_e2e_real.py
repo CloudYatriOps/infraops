@@ -72,7 +72,7 @@ def test_real_end_to_end_dependency_remediation(tmp_path):
     project = ProjectConfig(id="e2e_dep", name="e2e_dep", repo_path=str(repo),
                              policy_path="config/policy.yaml")
     orch = build_orchestrator(db_path=str(tmp_path / "state.db"), project=project,
-                               sleep_fn=lambda s: None)
+                               sleep_fn=lambda s: None, db_backend="sqlite")
     plan_dependency_scan(orch, project_id="e2e_dep", project_root=str(repo))
     orch.run_to_completion("e2e_dep", max_iterations=100)
 

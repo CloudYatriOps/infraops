@@ -1,11 +1,27 @@
 pyyaml>=6.0
 packaging>=21.0
+psycopg2-binary>=2.9
+pgvector>=0.2
 
 [anthropic]
 anthropic>=0.30.0
+
+[api]
+flask>=3.0
 
 [dependency-scanning]
 pip-audit>=2.6
 
 [dev]
 pytest>=8.0
+
+[github]
+requests>=2.31
+
+[infra]
+boto3>=1.35
+bc-python-hcl2>=0.4
+kubernetes-validate>=1.28
+
+[sbom]
+cyclonedx-python-lib>=7.0

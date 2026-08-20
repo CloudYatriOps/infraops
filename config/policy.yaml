@@ -38,6 +38,21 @@ deny:
   # CRITICAL security finding.
   - action: "infra.finding"
     when: {severity: "critical"}
+  # Phase 8 (24/7 Autonomous Runtime, Part 13): an autonomous worker may
+  # never mark its own destructive action safe by construction - fixed
+  # literal, always denied, never reachable through a "safe automation"
+  # branch regardless of confidence/context.
+  - action: "runtime.autonomous_destructive_action"
+
+# Phase 7 (Autonomous Operations & Reliability Intelligence, Part 6).
+# Destructive/irrecoverable operations actions are DENY by default, the
+# same way Phase 5's infra.resource_delete is - never a require_approval
+# prompt, since these should never be executed by this platform at all.
+  - action: "operations.destructive_action"
+  - action: "operations.delete_production_data"
+  - action: "operations.disable_security_control"
+  - action: "operations.bypass_policy"
+  - action: "operations.force_push_protected_branch"
 
 # Phase 6 (CI/CD & Deployment Intelligence, Part 11). Deployment/rollback
 # actions reuse the SAME PolicyEngine, and the actions below are always
@@ -96,6 +111,33 @@ require_approval:
   # can never be reached by accident through this rule.
   - action: "deployment.rollback"
     when: {environment: "production"}
+
+# Phase 9 Stage A (PostgreSQL Foundation, ARCHITECTURE.md Section 30):
+# schema changes are migration-only (src/aep/db/migrations.py enforces
+# this structurally - see tests/test_db_migration_only_enforcement.py).
+# This action exists so any future caller that wraps migration
+# application in an agent-facing workflow is gated the same way every
+# other structurally significant action is - a human approves it, it is
+# never silently auto-applied by an autonomous process. Additive fixed
+# literal; nothing in this stage actually invokes it yet (the runner is
+# invoked directly today, not through the policy engine) - declared now,
+# same discipline as infra.terraform_apply in Phase 5's addendum.
+  - action: "database.schema_change"
+
+# Phase 7 Part 6: production restart/rollback and any scaling/config/
+# secret/database/infrastructure-mutation action always needs a human,
+# regardless of confidence - the same "production always requires
+# approval" discipline Phase 6 already applies to deployment.deploy/
+# deployment.rollback.
+  - action: "operations.restart_workload"
+    when: {environment: "production"}
+  - action: "operations.rollback"
+    when: {environment: "production"}
+  - action: "operations.scale"
+  - action: "operations.configuration_change"
+  - action: "operations.secret_rotation"
+  - action: "operations.database_change"
+  - action: "operations.infrastructure_mutation"
 
 warn:
   - action: "dependency.upgrade"
@@ -164,3 +206,38 @@ allow:
   # `deployment/rollback.py::RollbackPlanner`.
   - action: "deployment.emergency_rollback"
     when: {environment: "production", reason: "critical_rollout_failure"}
+
+# Phase 7 Part 6: read-only diagnostic actions and non-production
+# SAFE AUTOMATION actions are allowed without a human. Production is
+# deliberately absent for restart/rollback - those only match the
+# REQUIRE_APPROVAL rules above.
+  - action: "operations.collect_logs"
+  - action: "operations.inspect_metrics"
+  - action: "operations.inspect_deployment"
+  - action: "operations.inspect_configuration"
+  - action: "operations.compare_versions"
+  - action: "operations.inspect_dependencies"
+  - action: "operations.retry_job"
+  - action: "operations.create_issue"
+  - action: "operations.create_diagnostic_task"
+  - action: "operations.trigger_cicd"
+  - action: "operations.restart_workload"
+    when: {environment: "development"}
+  - action: "operations.restart_workload"
+    when: {environment: "staging"}
+  - action: "operations.rollback"
+    when: {environment: "development"}
+  - action: "operations.rollback"
+    when: {environment: "staging"}
+
+# Phase 8 (24/7 Autonomous Runtime, Part 13): the autonomous work loop
+# reuses this SAME PolicyEngine for every scheduled/dispatched job - it is
+# MORE restricted than an interactive operator, never less. Read-only
+# scheduled discovery/scan work is allowed; anything that would mutate a
+# repo, force-push, or touch production infrastructure is deliberately
+# left to fall through to the DENY/REQUIRE_APPROVAL rules declared above
+# (e.g. `github.push` force=true, `infra.terraform_apply`,
+# `operations.restart_workload` in production) - Phase 8 adds no new
+# bypass path and only these two narrow, always-safe action names.
+  - action: "runtime.scheduled_scan"
+  - action: "runtime.worker_restart"

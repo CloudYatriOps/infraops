@@ -43,6 +43,46 @@ CREATE TABLE IF NOT EXISTS failure_counters (
     quarantined INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (project_id, task_type)
 );
+
+-- Phase 8 (24/7 Autonomous Runtime): additive tables only. No second
+-- database/queue engine - runtime state lives in the SAME SQLite file as
+-- tasks/events above, so a crash mid-lease leaves a resumable, consistent
+-- record exactly like a crash mid-task does. See src/aep/runtime/.
+CREATE TABLE IF NOT EXISTS runtime_workers (
+    worker_id TEXT PRIMARY KEY,
+    supervisor_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    last_heartbeat TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    restart_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS runtime_leases (
+    task_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    worker_id TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS runtime_project_locks (
+    project_id TEXT PRIMARY KEY,
+    worker_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS runtime_schedules (
+    job_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    job_type TEXT NOT NULL,
+    interval_seconds REAL NOT NULL,
+    next_run_at TEXT NOT NULL,
+    last_run_at TEXT,
+    last_status TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -192,3 +232,197 @@ class StateStore:
             )
             row = cur.fetchone()
             return bool(row and row[0])
+
+    # ---- Phase 8: runtime workers ------------------------------------
+    def register_worker(self, worker_id: str, supervisor_id: str) -> None:
+        ts = now_iso()
+        with self._cursor() as cur:
+            cur.execute(
+                """INSERT INTO runtime_workers (worker_id, supervisor_id, status, last_heartbeat, started_at, restart_count)
+                   VALUES (?, ?, 'IDLE', ?, ?, 0)
+                   ON CONFLICT(worker_id) DO UPDATE SET
+                       status='IDLE', last_heartbeat=excluded.last_heartbeat,
+                       restart_count=restart_count+1""",
+                (worker_id, supervisor_id, ts, ts),
+            )
+
+    def heartbeat_worker(self, worker_id: str, status: str) -> None:
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE runtime_workers SET status=?, last_heartbeat=? WHERE worker_id=?",
+                (status, now_iso(), worker_id),
+            )
+
+    def list_workers(self, supervisor_id: Optional[str] = None) -> list[dict]:
+        with self._cursor() as cur:
+            if supervisor_id:
+                cur.execute("SELECT worker_id, supervisor_id, status, last_heartbeat, started_at, "
+                            "restart_count FROM runtime_workers WHERE supervisor_id=?", (supervisor_id,))
+            else:
+                cur.execute("SELECT worker_id, supervisor_id, status, last_heartbeat, started_at, "
+                            "restart_count FROM runtime_workers")
+            cols = ["worker_id", "supervisor_id", "status", "last_heartbeat", "started_at", "restart_count"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def remove_worker(self, worker_id: str) -> None:
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM runtime_workers WHERE worker_id=?", (worker_id,))
+
+    # ---- Phase 8: task leases -----------------------------------------
+    def acquire_lease(self, task_id: str, project_id: str, worker_id: str, ttl_seconds: float) -> bool:
+        """Try to acquire (or re-acquire after expiry) an exclusive lease on a
+        task. Returns False if another worker currently holds a non-expired
+        lease. Durable: survives process crash/restart via SQLite."""
+        now = datetime.now(timezone.utc)
+        expires_at = _iso_plus(now, ttl_seconds)
+        with self._cursor() as cur:
+            cur.execute("SELECT worker_id, expires_at FROM runtime_leases WHERE task_id=?", (task_id,))
+            row = cur.fetchone()
+            if row is not None:
+                held_by, expires = row
+                if held_by != worker_id and _parse_iso(expires) > now:
+                    return False
+                cur.execute(
+                    "UPDATE runtime_leases SET worker_id=?, acquired_at=?, expires_at=? WHERE task_id=?",
+                    (worker_id, now.isoformat(), expires_at, task_id),
+                )
+                return True
+            cur.execute(
+                "INSERT INTO runtime_leases (task_id, project_id, worker_id, acquired_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (task_id, project_id, worker_id, now.isoformat(), expires_at),
+            )
+            return True
+
+    def renew_lease(self, task_id: str, worker_id: str, ttl_seconds: float) -> bool:
+        now = datetime.now(timezone.utc)
+        with self._cursor() as cur:
+            cur.execute("SELECT worker_id FROM runtime_leases WHERE task_id=?", (task_id,))
+            row = cur.fetchone()
+            if row is None or row[0] != worker_id:
+                return False
+            cur.execute("UPDATE runtime_leases SET expires_at=? WHERE task_id=?",
+                        (_iso_plus(now, ttl_seconds), task_id))
+            return True
+
+    def release_lease(self, task_id: str, worker_id: str) -> None:
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM runtime_leases WHERE task_id=? AND worker_id=?", (task_id, worker_id))
+
+    def expired_leases(self) -> list[dict]:
+        now = now_iso()
+        with self._cursor() as cur:
+            cur.execute("SELECT task_id, project_id, worker_id, expires_at FROM runtime_leases "
+                        "WHERE expires_at < ?", (now,))
+            cols = ["task_id", "project_id", "worker_id", "expires_at"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def list_leases(self) -> list[dict]:
+        with self._cursor() as cur:
+            cur.execute("SELECT task_id, project_id, worker_id, acquired_at, expires_at FROM runtime_leases")
+            cols = ["task_id", "project_id", "worker_id", "acquired_at", "expires_at"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def force_release_lease(self, task_id: str) -> None:
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM runtime_leases WHERE task_id=?", (task_id,))
+
+    # ---- Phase 8: per-project mutating-work lock ----------------------
+    def acquire_project_lock(self, project_id: str, worker_id: str, task_id: str,
+                              ttl_seconds: float) -> bool:
+        """One mutating workflow at a time per project - durable so a
+        restart doesn't let two workers both believe they hold it."""
+        now = datetime.now(timezone.utc)
+        with self._cursor() as cur:
+            cur.execute("SELECT worker_id, expires_at FROM runtime_project_locks WHERE project_id=?",
+                        (project_id,))
+            row = cur.fetchone()
+            if row is not None:
+                held_by, expires = row
+                if held_by != worker_id and _parse_iso(expires) > now:
+                    return False
+                cur.execute(
+                    "UPDATE runtime_project_locks SET worker_id=?, task_id=?, acquired_at=?, expires_at=? "
+                    "WHERE project_id=?",
+                    (worker_id, task_id, now.isoformat(), _iso_plus(now, ttl_seconds), project_id),
+                )
+                return True
+            cur.execute(
+                "INSERT INTO runtime_project_locks (project_id, worker_id, task_id, acquired_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (project_id, worker_id, task_id, now.isoformat(), _iso_plus(now, ttl_seconds)),
+            )
+            return True
+
+    def release_project_lock(self, project_id: str, worker_id: str) -> None:
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM runtime_project_locks WHERE project_id=? AND worker_id=?",
+                        (project_id, worker_id))
+
+    def list_project_locks(self) -> list[dict]:
+        with self._cursor() as cur:
+            cur.execute("SELECT project_id, worker_id, task_id, acquired_at, expires_at "
+                        "FROM runtime_project_locks")
+            cols = ["project_id", "worker_id", "task_id", "acquired_at", "expires_at"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    # ---- Phase 8: durable recurring-job schedule ----------------------
+    def upsert_schedule(self, job_id: str, project_id: str, job_type: str,
+                        interval_seconds: float, next_run_at: Optional[str] = None) -> None:
+        """Insert a job if unseen (so a restart never re-fires it early/
+        duplicates it); NEVER resets next_run_at of an existing job."""
+        with self._cursor() as cur:
+            cur.execute("SELECT job_id FROM runtime_schedules WHERE job_id=?", (job_id,))
+            if cur.fetchone() is not None:
+                return
+            cur.execute(
+                "INSERT INTO runtime_schedules (job_id, project_id, job_type, interval_seconds, "
+                "next_run_at, last_run_at, last_status, consecutive_failures) "
+                "VALUES (?, ?, ?, ?, ?, NULL, NULL, 0)",
+                (job_id, project_id, job_type, interval_seconds, next_run_at or now_iso()),
+            )
+
+    def due_schedules(self, now: Optional[str] = None) -> list[dict]:
+        now = now or now_iso()
+        with self._cursor() as cur:
+            cur.execute("SELECT job_id, project_id, job_type, interval_seconds, next_run_at, "
+                        "last_run_at, last_status, consecutive_failures FROM runtime_schedules "
+                        "WHERE next_run_at <= ?", (now,))
+            cols = ["job_id", "project_id", "job_type", "interval_seconds", "next_run_at",
+                    "last_run_at", "last_status", "consecutive_failures"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def list_schedules(self) -> list[dict]:
+        with self._cursor() as cur:
+            cur.execute("SELECT job_id, project_id, job_type, interval_seconds, next_run_at, "
+                        "last_run_at, last_status, consecutive_failures FROM runtime_schedules")
+            cols = ["job_id", "project_id", "job_type", "interval_seconds", "next_run_at",
+                    "last_run_at", "last_status", "consecutive_failures"]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def record_schedule_run(self, job_id: str, success: bool, interval_seconds: float,
+                            jitter_seconds: float = 0.0) -> None:
+        now = datetime.now(timezone.utc)
+        next_run = _iso_plus(now, interval_seconds + jitter_seconds)
+        with self._cursor() as cur:
+            if success:
+                cur.execute(
+                    "UPDATE runtime_schedules SET last_run_at=?, last_status='OK', "
+                    "consecutive_failures=0, next_run_at=? WHERE job_id=?",
+                    (now.isoformat(), next_run, job_id),
+                )
+            else:
+                cur.execute(
+                    "UPDATE runtime_schedules SET last_run_at=?, last_status='FAILED', "
+                    "consecutive_failures=consecutive_failures+1, next_run_at=? WHERE job_id=?",
+                    (now.isoformat(), next_run, job_id),
+                )
+
+
+def _parse_iso(s: str):
+    return datetime.fromisoformat(s)
+
+
+def _iso_plus(dt, seconds: float) -> str:
+    from datetime import timedelta
+    return (dt + timedelta(seconds=seconds)).isoformat()

@@ -22,7 +22,7 @@ def _orch(tmp_path: Path, policy_path: str):
     project = ProjectConfig(id="p1", name="p1", repo_path=str(tmp_path),
                              policy_path=policy_path)
     return build_orchestrator(str(tmp_path / "state.db"), project,
-                               deployment_state_dir=str(tmp_path / "deployments"))
+                               deployment_state_dir=str(tmp_path / "deployments"), db_backend="sqlite")
 
 
 def test_development_deployment_deploys_and_verifies(tmp_path: Path, policy_path):

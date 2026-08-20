@@ -14,6 +14,7 @@ from .infrastructure_intelligence_agent import InfrastructureIntelligenceAgent
 from .ci_intelligence_agent import CIIntelligenceAgent
 from .deployment_agent import DeploymentAgent
 from .deployment_verification_agent import DeploymentVerificationAgent
+from .operations_intelligence_agent import OperationsIntelligenceAgent
 
 __all__ = [
     "Agent", "AgentContext", "build_context",
@@ -34,4 +35,7 @@ __all__ = [
     # `DeploymentAgent` - same "narrower sibling" pattern as Phase 5's
     # discovery/intelligence split above.
     "CIIntelligenceAgent", "DeploymentAgent", "DeploymentVerificationAgent",
+    # Phase 7: Autonomous Operations & Reliability Intelligence - the
+    # closed-loop operational agent (see operations_intelligence_agent.py).
+    "OperationsIntelligenceAgent",
 ]

@@ -93,15 +93,20 @@ def test_json_status_reflects_real_test_counts(tmp_path):
     assert payload["tests"]["failed"] == 0
 
 
-def test_json_status_with_project_includes_task_snapshot(tmp_path):
+def test_json_status_with_project_includes_task_snapshot(tmp_path, monkeypatch):
     from aep.bootstrap import build_orchestrator
     from aep.models import ProjectConfig
 
+    # `_build_status_payload` below reads through `db/factory.py` too, so
+    # it must be told explicitly to use the same sqlite backend the
+    # orchestrator above was built with (project id "clitest" is not a
+    # valid UUID, so it cannot go through the Postgres facade).
+    monkeypatch.setenv("AEP_DB_BACKEND", "sqlite")
     roadmap_path = _small_roadmap(tmp_path)
     project = ProjectConfig(id="clitest", name="clitest", repo_path=str(tmp_path),
                              policy_path="config/policy.yaml")
     db_path = str(tmp_path / "cli_state.db")
-    orch = build_orchestrator(db_path=db_path, project=project)
+    orch = build_orchestrator(db_path=db_path, project=project, db_backend="sqlite")
     orch.plan_fix_bug(project_id="clitest", project_root=str(tmp_path),
                        target_file="app.py", bug_description="n/a")
 

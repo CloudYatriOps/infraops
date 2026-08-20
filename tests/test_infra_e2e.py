@@ -77,7 +77,7 @@ def _orch(tmp_path, repo, policy_path, project_id):
     project = ProjectConfig(id=project_id, name=project_id, repo_path=str(repo),
                              policy_path=policy_path)
     return build_orchestrator(db_path=str(tmp_path / f"{project_id}.db"), project=project,
-                               sleep_fn=lambda s: None)
+                               sleep_fn=lambda s: None, db_backend="sqlite")
 
 
 # ---- DISCOVER ---------------------------------------------------------------

@@ -29,7 +29,14 @@ _LATER_PHASES = (
     (6, "CI/CD & Deployment"),
     (7, "Runtime/Observability"),
     (8, "24/7 Autonomous Operation"),
-    (9, "Multi-Project/Advanced Intelligence"),
+    # Note: Phase 9 ("Product Foundation & Governance" - PostgreSQL
+    # foundation/skill registry/AI gateway/governance, added in Stage A)
+    # is deliberately NOT listed here. It is cross-cutting platform
+    # plumbing, not a user-facing capability phase like 4-8/10 - it is
+    # tracked by `aep progress` like every other phase, but is not a
+    # deployability gate the way GitHub/CVE/security/infra/CI/runtime
+    # phases are.
+    (10, "Multi-Project/Advanced Intelligence"),
 )
 
 

@@ -112,9 +112,15 @@ phases:
         test_paths: []
         blocked: true
         blocked_reason: >
-          No trivy/grype binary and no container runtime available in this
-          sandbox. Architecture (dependency/scanners/trivy_scanner.py) exists;
-          execution is unverified here.
+          No trivy/grype binary is installable (not in apt, GitHub releases
+          return 403), AND Docker Hub/registry access is blocked at the
+          network-egress layer even though a Docker daemon can itself be
+          started in this sandbox (confirmed during the final closure pass:
+          `dockerd` starts cleanly, but `docker pull` against
+          registry-1.docker.io returns 403 Forbidden) - so no image can ever
+          be pulled to scan. Same root cause as `security.container_scanning`
+          in Phase 4. Architecture (dependency/scanners/trivy_scanner.py)
+          exists; execution is unverified here.
       - id: dependency.remediation_planning
         description: "Smallest-safe-upgrade selection; refuses to guess when unsafe/ambiguous"
         test_paths: ["tests/test_dependency_remediation.py"]
@@ -413,44 +419,758 @@ phases:
         test_paths: ["tests/test_cicd_e2e.py"]
 
   - id: 7
-    name: "Runtime/Observability"
+    name: "Autonomous Operations & Reliability Intelligence"
     description: >
-      Runtime health/metrics/log ingestion and correlation back to a task
-      or deployment, so the platform can reason about production behavior,
-      not just CI status.
+      Operational intelligence: reason about system failures and
+      operational signals, determine probable root cause, create a safe
+      remediation plan, execute only authorized actions, verify recovery,
+      and escalate when automation is unsafe or insufficient. Built
+      entirely on the existing orchestrator/task-graph, PolicyEngine, and
+      StateStore/Event durable-evidence machinery - no independent
+      orchestration or storage system. See ARCHITECTURE.md Section 28.
     capabilities:
-      - id: observability.metrics_ingestion
-        description: "Real metrics/log ingestion from a running service"
-        test_paths: []
-      - id: observability.incident_correlation
-        description: "Correlates a runtime incident back to the task/PR/commit that caused it"
-        test_paths: []
+      - id: operations.event_model
+        description: "Normalized operational event model (20 event categories); evidence by reference, never duplicated"
+        test_paths: ["tests/test_operations_models.py"]
+      - id: operations.observability_adapter_contract
+        description: >
+          Provider-neutral observability adapter contract
+          (metrics/logs/traces/alerts/health/deployment-info surfaces).
+          Prometheus/Grafana/Datadog/OpenTelemetry/cloud-monitoring
+          adapters are honestly NOT_IMPLEMENTED in this sandbox (no
+          reachable backend); the one REAL adapter answers
+          service_health/deployment_info from this platform's own durable
+          Phase 6 deployment evidence.
+        test_paths: ["tests/test_operations_observability.py"]
+      - id: operations.incident_correlation
+        description: "Deterministic Incident Correlation Engine: groups events by time/service/environment/version into incidents with confidence/reasoning"
+        test_paths: ["tests/test_operations_correlation.py"]
+      - id: operations.root_cause_analysis
+        description: "Root Cause Analysis engine (CONFIRMED/HIGH_CONFIDENCE/LIKELY/POSSIBLE/UNKNOWN); refuses to auto-remediate on insufficient evidence"
+        test_paths: ["tests/test_operations_rca.py"]
+      - id: operations.service_dependency_graph
+        description: "Operational service dependency graph; blast-radius (upstream/downstream/affected deployments) computation"
+        test_paths: ["tests/test_operations_dependency_graph.py"]
+      - id: operations.remediation_decision_engine
+        description: "READ-ONLY/SAFE-AUTOMATION/REQUIRE-APPROVAL/DENY remediation catalog, gated through the existing PolicyEngine via new operations.* policy actions"
+        test_paths: ["tests/test_operations_remediation_policy.py"]
+      - id: operations.recurrence_and_circuit_breaker
+        description: "Recurrence/flapping detection: attempt counters, cooldown windows, circuit breaker, escalation threshold"
+        test_paths: ["tests/test_operations_recurrence.py"]
+      - id: operations.incident_memory
+        description: "Incident memory backed by the existing StateStore/Event mechanism; advisory-only retrieval, never overrides current evidence/policy"
+        test_paths: ["tests/test_operations_memory.py"]
+      - id: operations.human_escalation
+        description: "Structured, operationally-useful escalation model (what happened/impact/facts/root cause/tried/changed/required action/next step)"
+        test_paths: ["tests/test_operations_escalation.py"]
+      - id: operations.closed_loop_agent
+        description: "OperationsIntelligenceAgent: DETECT->COLLECT->CORRELATE->DIAGNOSE->PLAN->POLICY CHECK->APPROVAL->REMEDIATE->VERIFY->MONITOR->CLOSE/ESCALATE, via scan/remediate/rescan/escalate modes"
+        test_paths: ["tests/test_operations_e2e.py"]
+      - id: operations.threat_model
+        description: "Threat-modeled operations subsystem: untrusted events/logs, fixed policy literals, no destructive verbs, no AI-provider prompt surface"
+        test_paths: ["tests/test_operations_threat_model.py"]
+      - id: operations.status_cli
+        description: "aep operations-status / aep incident-status / aep status --project folds in incident history"
+        test_paths: ["tests/test_cli_operations_status.py"]
+      - id: operations.e2e
+        description: "Real end-to-end: bad-deployment->health-failure->correlate->diagnose->policy->rollback->verify; recurrence->circuit-breaker->escalation; insufficient-evidence escalation; advisory historical-incident reuse"
+        test_paths: ["tests/test_operations_e2e.py"]
 
   - id: 8
-    name: "24/7 Autonomous Operation"
+    name: "24/7 Autonomous Runtime"
     description: >
-      A real worker-pool/supervisor process for continuous, unattended
-      operation across many projects at once - this platform currently
-      runs one `run_to_completion()` call at a time, not a standing
-      service.
+      A supervising runtime (src/aep/runtime/) built on the existing
+      StateStore/PolicyEngine/agents that adds durable task leases,
+      per-project mutating-work locking, a durable recurring-job
+      scheduler, a deterministic priority model, health/watchdog
+      recovery, and an autonomous DISCOVER->...->ESCALATE work loop that
+      coordinates (never duplicates) the Dependency/Security/
+      Infrastructure/CI-CD/Operations agents. Demonstrated in this
+      sandbox via CONTROLLED, bounded (N-cycle / M-second) supervisor
+      runs under pytest - genuinely real crash/lease-recovery mechanics,
+      honestly NOT a claim of an actual unattended 24/7 process having
+      run. See ARCHITECTURE.md Section 29.
     capabilities:
-      - id: operation.worker_pool_supervisor
-        description: "A supervising process that runs many projects' task graphs concurrently"
+      - id: runtime.durable_task_leasing
+        description: "Durable task leases on the existing StateStore db - prevent duplicate execution; a crashed worker's lease expires and is safely recoverable"
+        test_paths: ["tests/test_runtime.py"]
+      - id: runtime.project_repo_locking
+        description: "Durable per-project mutating-work lock; independent projects run independently; survives process restart"
+        test_paths: ["tests/test_runtime.py"]
+      - id: runtime.worker_pool_supervisor
+        description: "RuntimeSupervisor + configurable WorkerPool; worker registration/heartbeat; graceful shutdown; crash/startup recovery"
+        test_paths: ["tests/test_runtime.py"]
+      - id: runtime.health_watchdog
+        description: "HEALTHY/DEGRADED/UNHEALTHY/RECOVERING/STOPPING/STOPPED health model; stale-worker and stuck-task detection with durable, explained recommendations"
+        test_paths: ["tests/test_runtime.py"]
+      - id: runtime.autonomous_scheduler
+        description: "Durable, project-configurable recurring-job scheduler (dependency/secret/SAST/IaC scans, infra discovery, CI/deployment monitoring, operations review, stale-task recovery); no duplicate execution after restart; failure-tracked backoff"
+        test_paths: ["tests/test_runtime.py"]
+      - id: runtime.priority_model
+        description: "Deterministic, explainable priority scoring (severity/production impact/incident/deployment-blockage/recurrence/age/escalation); no opaque AI scoring"
+        test_paths: ["tests/test_runtime.py"]
+      - id: runtime.autonomous_work_loop
+        description: "DISCOVER->PRIORITIZE->PLAN->POLICY CHECK->EXECUTE->VERIFY->RECORD EVIDENCE->RESCHEDULE->ESCALATE loop dispatching to existing agents' real discovery paths; every outcome tagged REAL/MOCKED/UNAVAILABLE/BLOCKED/DENIED"
+        test_paths: ["tests/test_runtime.py"]
+      - id: runtime.threat_model_and_autonomous_safety
+        description: "Fixed policy-literal discipline in runtime/; explicit proofs that autonomous mode cannot bypass protected-branch deny, force-push approval, destructive-infra deny, or production-deploy approval, and cannot endlessly retry blocked/failing work"
+        test_paths: ["tests/test_runtime_threat_model.py"]
+      - id: runtime.live_status_cli
+        description: "aep runtime-start/status/stop/workers/jobs/recover, incl. --json; a SEPARATE live operational view from platform development progress"
+        test_paths: ["tests/test_cli_runtime_status.py"]
+      - id: runtime.e2e
+        description: "Real controlled E2E: scheduler creates work -> worker claims task via durable lease -> policy check -> existing agents' discovery runs -> evidence recorded -> runtime stays healthy; plus worker-crash -> lease-expires -> supervisor recovers -> safe requeue -> no duplicate execution"
+        test_paths: ["tests/test_runtime.py"]
+      - id: runtime.kubernetes_oci_deployment_model
+        description: "Documented (ARCHITECTURE.md Section 29) future Docker/Kubernetes/OCI long-lived deployment model for the runtime; NOT implemented/exercised - no cluster/registry reachable in this environment"
         test_paths: []
-      - id: operation.health_and_restart
-        description: "Supervisor-level health checks and automatic restart of a stuck project"
-        test_paths: []
+        blocked: true
+        blocked_reason: "no Kubernetes cluster or kubectl in this sandbox, and no reachable container registry - a Docker daemon can itself be started (confirmed during the final closure pass), but `docker pull` against registry-1.docker.io returns 403 Forbidden at the network-egress layer, so no image can ever be pulled/deployed; documented as a design target only, never faked as running"
 
   - id: 9
+    name: "Product Foundation & Governance"
+    description: >
+      Cross-cutting platform foundation work spanning four stages: (A)
+      PostgreSQL persistence/migrations/memory architecture, (B) a skill
+      registry, (C) an AI provider gateway, (D) governance and docs. Only
+      Stage A capabilities are listed here; Stages B/C/D append their own
+      capability blocks to this phase when they are actually implemented
+      (never pre-declared as PENDING before that work exists), matching
+      how every prior phase in this file only ever added a block for work
+      that was actually built. See ARCHITECTURE.md Section 30. Stage C
+      (AI provider gateway / OmniRoute) is now implemented - see
+      ARCHITECTURE.md Section 33 and the `stage_c.*` capability block
+      below.
+    capabilities:
+      - id: foundation.postgres_schema
+        description: "Canonical PostgreSQL schema (supabase/migrations/0001_initial_schema.sql) generalizing existing SQLite StateStore concepts: projects/tasks/events, runtime workers/leases/locks/schedules, incidents, findings, deployments/release_gates/artifacts, memory_records"
+        test_paths: ["tests/test_db_migrations.py", "tests/test_db_repositories_postgres.py"]
+      - id: foundation.migration_tooling
+        description: "src/aep/db/migrations.py: apply/status/validate migration runner with checksum drift/tamper detection; real end-to-end lifecycle proof against local Postgres"
+        test_paths: ["tests/test_db_migrations.py"]
+      - id: foundation.migration_only_enforcement
+        description: "Lint-style proof that no CREATE/ALTER/DROP TABLE or CREATE INDEX literal exists in src/aep/ outside the migration runner/migration files; database.schema_change added to config/policy.yaml as REQUIRE_APPROVAL"
+        test_paths: ["tests/test_db_migration_only_enforcement.py"]
+      - id: foundation.schema_drift_detection
+        description: "drift_report() compares live information_schema/pg_catalog state against migration files on disk; real before/after proof that an out-of-band ALTER TABLE is detected"
+        test_paths: ["tests/test_db_schema_drift.py"]
+      - id: foundation.persistence_abstraction
+        description: "Repository interfaces (Project/Task/Event/Lease/Finding/Memory) with a real psycopg2 Postgres adapter and an in-memory fake test double sharing the same interface; no raw SQL leaks outside src/aep/db/postgres.py"
+        test_paths: ["tests/test_db_repositories_fake.py", "tests/test_db_repositories_postgres.py"]
+      - id: foundation.memory_architecture
+        description: "PostgreSQL + pgvector memory_records table, 6 memory classes via a memory_class column, real ANN cosine-similarity queries against real test vectors, self-referential supersession, and advisory-only retrieval (memory never mutates a caller's decision); real embedding generation explicitly NOT_IMPLEMENTED/deferred (see docs/MEMORY.md)"
+        test_paths: ["tests/test_db_repositories_fake.py", "tests/test_db_repositories_postgres.py"]
+      - id: foundation.supabase_connectivity
+        description: "Real connection attempt to the dedicated AEP Supabase project, reading credentials from /home/claude/.secrets/aep_supabase.env; genuinely blocked by this sandbox's egress proxy (403 on CONNECT tunnel to *.supabase.co, not a credentials problem)"
+        test_paths: ["tests/test_db_supabase_real.py"]
+        blocked: true
+        blocked_reason: "sandbox egress proxy returns 403 on the HTTPS CONNECT tunnel to iepmggxrlzadpuvqbpqi.supabase.co:443, and raw TCP to the db/pooler hostnames times out; confirmed real Supabase credentials exist and are stored, this is a network-policy block, not missing/invalid credentials"
+      # --- Stage A.5: PostgreSQL Runtime Cutover ---
+      # Honest scope, updated by the default-flip pass (ARCHITECTURE.md
+      # §31a): PostgreSQL is now the actual DEFAULT for every store-
+      # construction call site in src/aep/ (cli.py's 14 former direct
+      # StateStore(...) sites + build_orchestrator), via the single
+      # canonical src/aep/db/factory.py::build_state_store. SQLite has
+      # NOT been deleted - it remains a fully supported, explicit-only
+      # opt-in (db_backend="sqlite" / AEP_DB_BACKEND=sqlite), used by 17
+      # test files (plus 5 CLI-status test files at the env-var boundary)
+      # that legitimately need its non-UUID-id looseness. Full
+      # sqlite3/StateStore-reference classification table lives in
+      # ARCHITECTURE.md §31a.
+      - id: foundation.runtime_postgres_facade
+        description: "PostgresStateStore (src/aep/db/state_store_postgres.py): a facade implementing the exact public method surface of the SQLite StateStore, built on the full Project/Task/Event/Lease/Finding/Memory/ProjectLock/Worker/Schedule/FailureCounter repository set; now the DEFAULT backend via src/aep/db/factory.py::build_state_store (explicit db_backend/AEP_DB_BACKEND still selects sqlite when asked). Three documented interface gaps (UUID-only ids, Python-side multi-status filtering, FK provisioning requirements) - not silently papered over."
+        test_paths: ["tests/test_state_store_postgres_facade.py"]
+      - id: foundation.startup_migration_gate
+        description: "src/aep/db/startup.py verify_database(): runs unconditionally in PostgresStateStore construction before any repository is built; raises DatabaseUnavailableError on connection failure or SchemaDriftError on pending/tampered/drifted schema. Three real proofs: normal, outage, drift."
+        test_paths: ["tests/test_db_startup_gate.py"]
+      - id: foundation.no_silent_fallback
+        description: "Opting into AEP_DB_BACKEND=postgres and hitting a startup-gate failure (outage or drift) raises rather than silently falling back to SQLite or proceeding against a broken schema - construction itself fails. Re-proven under the new default (spec item 7): even the ambient default (no explicit backend anywhere) raises DatabaseUnavailableError when Postgres is down, never silently substituting SQLite."
+        test_paths: ["tests/test_db_startup_gate.py"]
+      - id: foundation.sqlite_removed_from_default_runtime_path
+        description: "src/aep/db/factory.py::build_state_store is the single canonical store-construction factory; its default (no explicit db_backend, no AEP_DB_BACKEND override) is now PostgresStateStore, not SQLite StateStore. All 14 former direct StateStore(args.db)/StateStore(db_path) call sites in src/aep/cli.py were converted to go through this factory, and build_orchestrator in bootstrap.py delegates to the same factory instead of duplicating the resolution logic. Proven directly by test_default_backend_is_postgres_with_no_explicit_choice (constructs via both the factory and build_orchestrator with nothing but the default and asserts isinstance(store, PostgresStateStore)). SQLite remains available only as an explicit, visible opt-in (db_backend=\"sqlite\"/AEP_DB_BACKEND=sqlite) - it is not deleted, only no longer reachable without asking for it."
+        test_paths: ["tests/test_db_startup_gate.py::test_default_backend_is_postgres_with_no_explicit_choice", "tests/test_db_startup_gate.py::test_default_still_raises_dbunavailable_when_postgres_down_not_silent_fallback"]
+      - id: foundation.lease_repository_concurrency_bugfix
+        description: "BUG-0001 (BUGFIX.md): PostgresLeaseRepository.acquire() raised an uncaught IntegrityError instead of cleanly returning False when multiple workers raced a first-time lease acquisition on the same never-before-seen task_id. Fixed with INSERT ... ON CONFLICT DO NOTHING + rowcount check; proven with 8 real concurrent threads/connections."
+        test_paths: ["tests/test_db_repositories_postgres.py"]
+      - id: foundation.crash_recovery
+        description: "Real crash/recovery proof: task saved + lease acquired + event appended through one PostgresStateStore instance, then every in-process object discarded (pool closed, refs deleted, gc.collect() forced) and a brand-new PostgresStateStore constructed against the same DSN, as a fresh process would - reads back identical task/lease/event state, no loss, no duplication. Also proves the facade-level concurrent-acquire-lease guarantee: two independent PostgresStateStore instances (own connection pools) race acquire_lease for the same task_id; exactly one wins through the facade's own return value, the loser gets False (no exception)."
+        test_paths: ["tests/test_db_crash_recovery.py"]
+
+      # --- Stage B: Canonical AEP Skill Registry & Claude Skill Adapter ---
+      # A first-class Skill/SkillVersion domain model (src/aep/skills/),
+      # backed by a new migration (0006_skill_registry.sql) following the
+      # exact Stage A persistence-layer conventions (Repository ABC + real
+      # Postgres implementation + in-memory fake), 18 canonical skill
+      # definitions self-validated against the REAL tool/scanner/policy
+      # surface before publish, a deterministic Claude-skill projector, a
+      # non-LLM capability resolver gating task execution, and a threat
+      # model treating canonical skills as trusted platform configuration
+      # that untrusted repository content can never redefine.
+      - id: skills.domain_model
+        description: >
+          Skill (stable identity) / SkillVersion (immutable published
+          content snapshot) dataclasses in src/aep/skills/models.py -
+          publishing a new version is always a NEW row, never a mutation
+          of an existing one; zero AI-provider dependency anywhere in the
+          package.
+        test_paths: ["tests/test_skills_registry.py"]
+      - id: skills.registry
+        description: >
+          SkillRegistry (src/aep/skills/registry.py): register/publish,
+          get/list/latest_version, deprecate, and self_validate - the last
+          rejecting any skill claiming a tool/verification-check/policy
+          action that does not actually exist in this platform
+          (src/aep/skills/known_capabilities.py, introspected from the
+          real scanner modules and the real policy.yaml, never
+          hand-typed duplicates for scanner ids).
+        test_paths: ["tests/test_skills_registry.py", "tests/test_skills_self_validation.py"]
+      - id: skills.versioning
+        description: >
+          Plain MAJOR.MINOR.PATCH parsing/comparison/constraint
+          satisfaction (src/aep/skills/versioning.py); deprecated versions
+          are excluded from dependency-constraint satisfaction.
+        test_paths: ["tests/test_skills_versioning.py"]
+      - id: skills.persistence_postgres
+        description: >
+          Migration 0006_skill_registry.sql adds skills/skill_versions/
+          skill_dependencies only (capabilities/allowed_tools/
+          prohibited_actions/etc. live as jsonb columns on skill_versions,
+          not separate join tables - deliberately not every table the
+          spec merely suggested). Immutability of a published version is
+          enforced at TWO layers: application (ON CONFLICT DO NOTHING +
+          rowcount check, the same BUG-0001 concurrency-safety discipline)
+          and database (a BEFORE UPDATE trigger rejecting content changes
+          to an already-published row). Real Postgres repository
+          implementations in src/aep/db/postgres.py
+          (PostgresSkillRepository/PostgresSkillVersionRepository) plus
+          in-memory fakes in src/aep/db/fake.py sharing the same ABC.
+        test_paths: ["tests/test_skills_db_postgres.py"]
+      - id: skills.canonical_definitions
+        description: >
+          18 real, concise skill definitions (src/aep/skills/definitions.py)
+          seeded through the real SkillRegistry/repository path -
+          security, sast, dependency-cve, secrets, terraform, kubernetes,
+          helm, cicd, deployment, incident-response, database, postgresql,
+          git, github, architecture-review, code-review, testing,
+          cost-optimization. Every allowed_tools/required_checks/
+          prohibited_actions entry references a real existing AEP tool/
+          scanner/policy action; terraform/kubernetes/helm never claim
+          live cluster/cloud apply capability (only DENY-bucket
+          destructive actions listed as prohibited); database/postgresql
+          require migration-only changes matching the actual Stage A/A.5
+          discipline.
+        test_paths: ["tests/test_skills_dependencies.py", "tests/test_skills_registry.py"]
+      - id: skills.dependency_resolution
+        description: >
+          SkillRegistry.resolve_dependencies() walks the full transitive
+          graph, detecting missing skills, unsatisfiable version
+          constraints, and cycles (DFS with a visiting-stack) - never
+          silently ignoring any of the three. Proven both on synthetic
+          graphs and on the real seeded 18-skill dependency graph
+          (deployment -> testing/security, terraform -> security/testing,
+          postgresql -> database, etc.).
+        test_paths: ["tests/test_skills_dependencies.py"]
+      - id: skills.capability_resolver
+        description: >
+          Deterministic, non-LLM task-intent -> required/optional skill
+          mapping (src/aep/skills/loader.py's TASK_SKILL_RULES, a fixed
+          dict) plus resolve_required_skills(), which raises
+          SkillResolutionError (stop/escalate, never silently downgrade)
+          when a required skill is unresolvable or a skill's
+          allowed_tools exceeds the caller's real tool registry.
+        test_paths: ["tests/test_skills_capability_matching.py"]
+      - id: skills.claude_adapter
+        description: >
+          Deterministic projector (src/aep/skills/claude_adapter.py) from
+          a canonical published SkillVersion to a Claude-compatible skill
+          artifact (canonical id+version, generated_from, instructions,
+          applicable tools, verification expectations, safety
+          constraints). Running the identical published version through
+          the projector twice produces a byte-identical SHA-256 hash -
+          there is no second, independently-authored Claude skill
+          definition anywhere in the platform.
+        test_paths: ["tests/test_skills_claude_adapter.py"]
+      - id: skills.runtime_integration_and_policy_boundary
+        description: >
+          A real proof that a task genuinely cannot execute without its
+          required skills resolved (stops/escalates with
+          FailureClass.HUMAN_REQUIRED rather than proceeding), and that a
+          skill can never bypass PolicyEngine - the most restrictive
+          applicable policy rule still wins even when a skill's own
+          content would otherwise proceed (e.g. a production deployment
+          still requires human approval regardless of the deployment
+          skill's definition). Evidence records exact skill
+          ids+versions+dependencies+tools+verification-checks used.
+        test_paths: ["tests/test_skills_runtime_integration.py"]
+      - id: skills.threat_model
+        description: >
+          Lint-style source assertions (matching test_infra_threat_model.py's
+          convention): self-validation rejects fake capability claims, no
+          skills module evaluates policy or constructs a PolicyDecision
+          itself, no AI-provider dependency, no eval/exec, publish() has
+          no force/overwrite escape hatch, real cycle detection, and
+          terraform/kubernetes/helm/database/postgresql skills never claim
+          destructive/live capability. Core invariant: canonical skills
+          are trusted platform configuration; untrusted repository
+          content can never redefine policy/skills (no module loads a
+          Skill/SkillVersion from arbitrary repository content).
+        test_paths: ["tests/test_skills_threat_model.py"]
+      - id: skills.cli
+        description: >
+          aep skills list/show/versions/validate/project (with --json),
+          following the exact _build_X_payload/_print_X_human pattern
+          already used by every other status subcommand.
+        test_paths: ["tests/test_cli_skills.py"]
+
+      # --- Stage C: AI Provider Gateway (OmniRoute) ---
+      # A provider-neutral `AIProvider` ABC (src/aep/ai_gateway/provider.py),
+      # a deterministic (rule-table, non-ML) `AIGateway` router with
+      # primary/fallback and additive usage accounting
+      # (src/aep/ai_gateway/gateway.py), an honestly-named test double
+      # (`FakeAIProvider`), and a real `OmniRouteProvider` reading
+      # AI_PROVIDER/AI_BASE_URL/AI_CREDENTIAL from env only - never a
+      # hardcoded value. The central orchestrator skill gate
+      # (`Orchestrator._apply_skill_gate`, closing the one known Stage B
+      # gap) and a real end-to-end demo flow (src/aep/demo.py,
+      # demo_project_template/) round out the stage. Real OmniRoute
+      # network access is UNAVAILABLE in this sandbox (no AI_BASE_URL
+      # configured) - the demo path honestly falls back to
+      # `FakeAIProvider`, never presenting it as real inference.
+      - id: stage_c.ai_provider_interface
+        description: >
+          Provider-neutral `AIProvider` ABC plus `CompletionRequest`/
+          `CompletionResponse`/`ModelInfo` dataclasses
+          (src/aep/ai_gateway/provider.py) - pure interface, no
+          implementation lives in this module.
+        test_paths: ["tests/test_ai_gateway.py"]
+      - id: stage_c.deterministic_routing_gateway
+        description: >
+          `AIGateway` (src/aep/ai_gateway/gateway.py): fixed
+          category -> required-tag routing table (`CATEGORY_TAG_RULES`),
+          explainable `RoutingDecision.reason` string, primary/fallback
+          provider failover, and an additive `UsageLedger` (cost/token
+          accounting, explicitly not a billing system). `verification`
+          category prefers a distinct provider from the one being
+          verified (`DISTINCT_PROVIDER_CATEGORIES`).
+        test_paths: ["tests/test_ai_gateway.py"]
+      - id: stage_c.fake_provider_test_double
+        description: >
+          `FakeAIProvider` (src/aep/ai_gateway/fake_provider.py) - an
+          honestly-named test double, same pattern as `db/fake.py`'s
+          in-memory repositories. Never calls a real model; returns a
+          clearly-labeled canned string, used by unit tests and the
+          offline demo path when OmniRoute is unconfigured.
+        test_paths: ["tests/test_ai_gateway.py"]
+      - id: stage_c.omniroute_provider
+        description: >
+          Real `OmniRouteProvider` (src/aep/ai_gateway/omniroute_provider.py)
+          reading `AI_PROVIDER`/`AI_BASE_URL`/`AI_CREDENTIAL` from env
+          only; credential held only in memory, read once at construction,
+          redacted defensively from any exception/log/health-check detail,
+          sent only as an outbound Bearer header. Unit-tested against a
+          local `http.server` stub - no live OmniRoute network access
+          needed for these tests (genuinely UNAVAILABLE in this sandbox:
+          no AI_BASE_URL configured, honestly reported by `aep providers`).
+        test_paths: ["tests/test_omniroute_provider.py"]
+      - id: stage_c.credential_safety
+        description: >
+          Lint-test-style proof (same pattern as
+          `tests/test_skills_threat_model.py`) that a credential value
+          never appears in a prompt sent to a provider, a log line, an
+          evidence record, or any exception message raised by the
+          gateway/adapter - covers connection failures, health checks,
+          Python logging during failed calls, and gateway prompt
+          forwarding.
+        test_paths: ["tests/test_ai_gateway_credential_safety.py"]
+      - id: stage_c.orchestrator_skill_gate
+        description: >
+          `Orchestrator._apply_skill_gate`, wired into `run_task`
+          alongside the pre-existing `_apply_generic_policy_gate` -
+          closes the one known Stage B gap (skills were resolvable but
+          never actually enforced against a live task dispatch).
+          Resolves `task.type`'s required skills via the fixed
+          `TASK_SKILL_RULES` table exactly once, centrally, against the
+          orchestrator's own `skill_registry` (never per-agent). A task
+          type absent from `TASK_SKILL_RULES`, or an orchestrator
+          constructed with `skill_registry=None` (every pre-Stage-C
+          caller), is an unconditional no-op - additive only, never
+          retroactively gating Phase 1-8 task types. A task type WITH a
+          rule whose skills fail to resolve stops/escalates to
+          `BLOCKED_ON_APPROVAL` (`skill_gate_blocked` event), never
+          silently proceeds. The pre-existing policy gate still runs
+          first and still wins regardless of skill-gate outcome (a
+          skill can never bypass `PolicyEngine`).
+        test_paths: ["tests/test_orchestrator_skill_gate.py"]
+      - id: stage_c.end_to_end_demo
+        description: >
+          Real, reproducible demo flow (`src/aep/demo.py`,
+          `demo_project_template/`, `aep demo run`): materializes the
+          fixture into a real git repo, seeds/resolves skills, routes an
+          AI call through `AIGateway` (honestly to `FakeAIProvider` -
+          OmniRoute unavailable), runs the real secret scanner (blocks on
+          a placeholder secret), applies a real filesystem fix, gets
+          operator approval, re-scans clean, runs the real fix-bug graph
+          (recon -> code_fix -> security_scan -> run_tests) to
+          `SUCCEEDED`, and persists every task/event to real PostgreSQL.
+          A separate `--scenario ambiguous` path proves refusal: an
+          under-specified request ("make the database faster") is
+          refused with a clarifying question, never guessed at or
+          executed.
+        test_paths: ["tests/test_end_to_end_demo.py", "tests/test_cli_demo.py"]
+      - id: stage_c.demo_readiness_checklist
+        description: >
+          `aep demo readiness` / `src/aep/progress/demo_readiness.py`: a
+          deterministic checklist (explicitly NOT a percentage) of
+          concrete, checkable conditions - skill gate wired, AI gateway/
+          OmniRoute adapter importable, demo fixture present, the real
+          E2E demo test passes, PostgreSQL is the resolved default
+          backend, and the Evidence model records what it must.
+        test_paths: ["tests/test_cli_demo.py"]
+      - id: stage_c.cli
+        description: >
+          `aep providers` (registered AI providers/models, default/
+          fallback, live OmniRoute reachability), `aep demo run`
+          (`--scenario happy|ambiguous`, `--db-backend`), and
+          `aep demo readiness` - following the exact
+          `_build_X_payload`/`cmd_X` + `--json` pattern already used by
+          `aep skills ...`; the CLI calls the same underlying
+          `src/aep/demo.py`/`src/aep/progress/demo_readiness.py`
+          functions the tests exercise directly, never a duplicated copy
+          of the logic.
+        test_paths: ["tests/test_cli_demo.py"]
+      - id: stage_d.product_api
+        description: >
+          Thin Flask API (`src/aep/api/app.py`) over the existing engine -
+          projects/repositories/tasks/agents/skills/providers/findings/
+          incidents/deployments/approvals/runtime/evidence/system-status -
+          every handler calls the same Orchestrator/PolicyEngine/
+          SkillRegistry code the CLI uses, no duplicated logic.
+        test_paths: ["tests/test_api_app.py"]
+      - id: stage_d.api_key_auth_and_project_isolation
+        description: >
+          API-key auth (`src/aep/api/auth.py`, `api_keys` table, migration
+          0007_api_auth.sql), `AEP_API_DEV_MODE` local-dev bypass, and
+          project-scoped key enforcement across every endpoint including
+          the optional-`project_id`-query endpoints (`/findings`,
+          `/approvals`) - a genuine isolation gap in those two endpoints
+          was found and fixed in Wave 2 (BUGFIX.md BUG-0005).
+        test_paths: ["tests/test_api_app.py", "tests/test_api_threat_model.py"]
+      - id: stage_d.bootstrap_dependency_fix
+        description: >
+          BUG-0004 fix: psycopg2/pgvector are required dependencies, not
+          optional, plus `scripts/bootstrap.sh` and `docs/BOOTSTRAP.md`.
+        test_paths: ["tests/test_bootstrap_install_dependencies.py"]
+      - id: stage_d.web_ui
+        description: >
+          Small Vite/React/TypeScript UI (`ui/`) - Dashboard, Projects,
+          Task Execution, Task Detail, Findings, Incidents, Approvals,
+          Runtime Status, Evidence Browser, AI Provider Status. Every
+          page is a thin view over the Wave 1 API; no AEP logic is
+          reimplemented client-side. A UI failure cannot affect the
+          backend - it is a separate process hitting HTTP only.
+        test_paths: ["tests/test_api_app.py"]
+      - id: stage_d.threat_model_wave2
+        description: >
+          Lint-style + behavioral tests (same convention as
+          test_skills_threat_model.py) covering auth-bypass-by-path,
+          project isolation, credential exposure, approval-abuse
+          shortcuts, prompt injection from repository content, and
+          malicious AI output never being treated as a real approval or
+          command execution.
+        test_paths: ["tests/test_api_threat_model.py"]
+
+  - id: 10
     name: "Multi-Project/Advanced Intelligence"
     description: >
       Cross-project learning, cost/architecture optimization, and
       predictive remediation across a fleet of projects rather than one at
       a time.
     capabilities:
-      - id: advanced.cross_project_learning
-        description: "Reuses remediation/diagnosis history across more than one project"
-        test_paths: []
-      - id: advanced.predictive_remediation
-        description: "Flags likely-future issues before a scanner/CI run surfaces them"
-        test_paths: []
+      # NOTE (roadmap reconciliation pass): this phase used to carry two
+      # placeholder stub capabilities here - `advanced.cross_project_learning`
+      # and `advanced.predictive_remediation` - both with `test_paths: []`,
+      # predating the real Wave 9/Wave 10 implementations below. Once the
+      # real, tested capabilities existed (`phase10.cross_project_learning_intelligence`,
+      # `phase10.predictive_remediation_decision_engine`), keeping both the
+      # old stub AND the new real entry double-counted the same feature as
+      # two separate capabilities - one perpetually PENDING, one COMPLETE -
+      # which understated Phase 10's true percentage and violated "one
+      # canonical capability per real feature". The stubs are removed here,
+      # not merely relabeled, since Roadmap/CapabilityDef has no
+      # superseded/deprecated field and adding one for a single one-time
+      # cleanup would be unwarranted schema growth for this fix. Mapping,
+      # for the historical record:
+      #   advanced.cross_project_learning  -> phase10.cross_project_learning_intelligence
+      #   advanced.predictive_remediation  -> phase10.predictive_remediation_decision_engine
+      - id: phase10.cross_project_prioritization
+        description: >
+          Wave 1 (this pass): deterministic, explainable cross-project
+          finding prioritization (src/aep/intelligence/prioritization.py)
+          - severity/risk/production-impact/recurrence/age/blast-radius
+          weighted scoring plus an explicit no-op SLA factor, exposed via
+          `aep prioritize` and `GET /intelligence/prioritization`. The
+          other 11 Phase 10 sub-areas (predictive risk, architecture
+          intelligence, cost intelligence, recurrence prediction,
+          security posture trends, dependency/deployment risk
+          forecasting, cross-incident pattern analysis, engineering
+          health scoring, technical debt intelligence, cross-project
+          learning, predictive remediation) remain NOT_IMPLEMENTED - see
+          ARCHITECTURE.md §35 / docs/PHASE10.md.
+        test_paths: ["tests/test_prioritization.py", "tests/test_api_prioritization.py"]
+      - id: phase10.incident_pattern_engineering_health
+        description: >
+          Wave 2: cross-incident pattern analysis + engineering health
+          scoring (src/aep/intelligence/incident_patterns.py) -
+          deterministic cross-project fingerprinting/recurrence analysis
+          plus a fixed set of engineering-health signals
+          (HIGH_RECURRENT_INCIDENT_RATE, REPEATED_CVE_REMEDIATION,
+          UNRESOLVED_CRITICAL_FINDINGS, SECURITY_FINDINGS_INCREASING,
+          FREQUENT_DEPLOYMENT_ROLLBACK, REPEATED_FAILED_REMEDIATION),
+          integrated into rank_findings() as an optional bonus factor,
+          exposed via `aep intelligence patterns` and
+          `GET /intelligence/patterns` / `GET /intelligence/health`.
+          BUG-0006 (PostgresFindingRepository.save() discarding
+          discovered_at) was fixed as part of this wave. The remaining 9
+          Phase 10 sub-areas (predictive risk, architecture intelligence,
+          cost intelligence, recurrence prediction, security posture
+          trend analysis, dependency/deployment risk forecasting,
+          technical debt intelligence, cross-project learning, predictive
+          remediation) remain NOT_IMPLEMENTED - see ARCHITECTURE.md §36 /
+          docs/PHASE10.md.
+        test_paths: ["tests/test_incident_patterns.py", "tests/test_api_incident_patterns.py"]
+      - id: phase10.predictive_risk_intelligence
+        description: >
+          Wave 3: evidence-based predictive risk intelligence
+          (src/aep/intelligence/risk_prediction.py) - a deterministic,
+          NOT-machine-learned per-project RiskPrediction (risk_horizon,
+          trend, weighted score, factor breakdown) built by reusing Wave
+          2's detect_patterns()/compute_health_signals() as inputs
+          (recurrence_rate, severity_trend, production_impact,
+          recent_incident_activity, unresolved_critical_findings,
+          failed_remediation_count, deployment_instability - all backed
+          by real persisted findings/incidents/deployment evidence, no
+          invented numbers), integrated into rank_findings() as an
+          optional bonus factor, exposed via `aep intelligence risk` and
+          `GET /intelligence/risk`. No memory integration this wave. The
+          remaining 8 Phase 10 sub-areas (architecture intelligence, cost
+          intelligence, a genuine recurrence-prediction model, a full
+          security-posture trend engine, dependency/deployment risk
+          forecasting, technical debt intelligence, cross-project
+          learning, predictive remediation) remain NOT_IMPLEMENTED - see
+          ARCHITECTURE.md §37 / docs/PHASE10.md.
+        test_paths: ["tests/test_risk_prediction.py", "tests/test_api_risk_prediction.py",
+                     "tests/test_cli_risk.py"]
+      - id: phase10.architecture_intelligence
+        description: >
+          Wave 4: deterministic architecture intelligence
+          (src/aep/intelligence/architecture.py) - a fixed set of
+          ArchitecturalRisk signals (RESOURCE_HOTSPOT,
+          DUPLICATED_INFRASTRUCTURE_RISK, FINDING_DIVERSITY_COMPLEXITY,
+          SECURITY_BOUNDARY_WEAKNESS) derived only from real persisted
+          finding resource/category distribution and Wave 2's
+          detect_patterns() (reused, not reimplemented) - no dependency
+          graph, service topology, or "OpsGraph" concept exists in this
+          schema, so none is fabricated; each signal's exact evidence
+          source is documented in the module docstring. Exposed via
+          `aep intelligence architecture` and
+          `GET /intelligence/architecture`. The remaining 7 Phase 10
+          sub-areas (cost intelligence, a genuine recurrence-prediction
+          model, a full security-posture trend engine,
+          dependency/deployment risk forecasting, technical debt
+          intelligence, cross-project learning, predictive remediation)
+          remain NOT_IMPLEMENTED - see ARCHITECTURE.md §38 /
+          docs/PHASE10.md.
+        test_paths: ["tests/test_architecture_intelligence.py",
+                     "tests/test_api_architecture_intelligence.py",
+                     "tests/test_cli_architecture.py"]
+      - id: phase10.security_posture_trends
+        description: >
+          Wave 6: deterministic security posture trend analysis
+          (src/aep/intelligence/security_trends.py) - a per-project (+
+          overall) SecurityTrend for three named metrics
+          (critical_findings, secret_findings, remediation_backlog),
+          each an INCREASING/STABLE/DECREASING/UNKNOWN comparison of a
+          recent 30d window vs a prior 30d window of real
+          `findings.discovered_at` timestamps - UNKNOWN whenever fewer
+          than 2 dated data points exist, never guessed. No scanners are
+          re-run; findings are read once through the existing
+          `FindingRepository`. Exposed via
+          `aep intelligence security-trends` and
+          `GET /intelligence/security-trends`. The remaining 6 Phase 10
+          sub-areas (cost intelligence, a genuine recurrence-prediction
+          model, technical debt intelligence, cross-project learning,
+          predictive remediation, and dependency/deployment risk
+          forecasting - see the next capability) remain either
+          NOT_IMPLEMENTED or covered by the sibling capability below -
+          see ARCHITECTURE.md §39 / docs/PHASE10.md.
+        test_paths: ["tests/test_security_trends.py",
+                     "tests/test_api_security_trends.py",
+                     "tests/test_cli_security_trends.py"]
+      - id: phase10.dependency_deployment_risk_forecasting
+        description: >
+          Wave 7: deterministic dependency/deployment risk forecasting
+          (src/aep/intelligence/deployment_risk.py) - a per-project
+          DeploymentRiskForecast for two risk categories
+          (DEPENDENCY_RECURRENCE, from Wave 2's detect_patterns() over
+          category='dependency' findings recurring on a project;
+          DEPLOYMENT_ROLLBACK_INSTABILITY, a direct reuse of Wave 2's
+          FREQUENT_DEPLOYMENT_ROLLBACK health signal, not rebuilt),
+          using the same IMMEDIATE/NEAR_TERM/ELEVATED/UNKNOWN horizon
+          vocabulary as risk_prediction.py for consistency. Not
+          integrated into rank_findings() - documented explicitly as a
+          standalone advisory report, not a per-finding ranker. Exposed
+          via `aep intelligence dependency-risk` and
+          `GET /intelligence/dependency-risk`. The remaining 5 Phase 10
+          sub-areas (cost intelligence, a genuine recurrence-prediction
+          model, technical debt intelligence, cross-project learning,
+          predictive remediation) remain NOT_IMPLEMENTED - see
+          ARCHITECTURE.md §40 / docs/PHASE10.md.
+        test_paths: ["tests/test_deployment_risk.py",
+                     "tests/test_api_deployment_risk.py",
+                     "tests/test_cli_dependency_risk.py"]
+      - id: phase10.technical_debt_intelligence
+        description: >
+          Wave 8: deterministic technical debt intelligence
+          (src/aep/intelligence/technical_debt.py) - five DebtSignal
+          sources, each reusing an existing Wave's output rather than
+          reimplementing detection: REPEATED_FAILED_REMEDIATION (Wave
+          2's compute_health_signals()), REPEATED_SUPPRESSED_FINDINGS
+          (real status='SUPPRESSED' findings, the DB check-constraint
+          value), STALE_RECURRING_DEPENDENCY (Wave 7's
+          forecast_deployment_risk() DEPENDENCY_RECURRENCE forecasts),
+          REPEATED_ARCHITECTURAL_FINDING (Wave 4's
+          analyze_architecture()), and CI_FAILURE_HISTORY_UNAVAILABLE -
+          always emitted, honestly reporting that no CI run/failure
+          history is persisted in this schema (see the sibling
+          phase10.ci_failure_clustering capability). Static-code
+          TODO/FIXME scanning was explicitly NOT claimed - no such
+          scanner/finding-category exists in this repository. Exposed
+          via `aep intelligence technical-debt` and
+          `GET /intelligence/technical-debt`. See ARCHITECTURE.md §41 /
+          docs/PHASE10.md.
+        test_paths: ["tests/test_technical_debt.py",
+                     "tests/test_api_technical_debt.py",
+                     "tests/test_cli_technical_debt.py"]
+      - id: phase10.cross_project_learning_intelligence
+        description: >
+          Wave 9: cross-project learning
+          (src/aep/intelligence/cross_project_learning.py) - reuses
+          Wave 2's detect_patterns()/fingerprint_for_finding() (not
+          reimplemented) to find fingerprints recurring in >= 2
+          projects, optionally enriched with an ADVISORY-labeled
+          reference to a memory record (PostgresMemoryRepository,
+          Stage A's existing memory table) describing how a similar
+          issue was resolved elsewhere - current live evidence always
+          wins; memory can never override or shrink the live
+          affected_project_ids/occurrence_count, and is never
+          auto-applied as a remediation. Works with no memory_repo
+          passed (advisory_context=None). This is a distinct,
+          implemented, tested capability from the pre-existing
+          `advanced.cross_project_learning` stub above (which remains
+          untouched, test_paths: [] - superseded in substance by this
+          capability, not deleted, since the older entry predates this
+          spec and this pass does not remove existing roadmap entries).
+          Exposed via `aep intelligence cross-project` and
+          `GET /intelligence/cross-project`. See ARCHITECTURE.md §42 /
+          docs/PHASE10.md.
+        test_paths: ["tests/test_cross_project_learning.py",
+                     "tests/test_api_cross_project.py",
+                     "tests/test_cli_cross_project.py"]
+      - id: phase10.ci_failure_clustering
+        description: >
+          Wave 11: CI failure clustering
+          (src/aep/intelligence/ci_clustering.py) - honestly reports
+          `NOT_IMPLEMENTED`: this schema has no ci_runs/build-failure
+          table anywhere (checked src/aep/cicd/models.py,
+          supabase/migrations/*.sql), and Phase 6 CI/CD
+          triggers/orchestrates/classifies CI runs in the moment
+          (failure_classification.py) without persisting a
+          failure-signature history to cluster across runs/projects -
+          the same gap incident_patterns.py's own never-emitted
+          CI_FAILURE_CLUSTER signal already documented. No second CI
+          engine was built and no data was invented; the NOT_IMPLEMENTED
+          status/reason is the correct, tested, documented outcome.
+          Exposed via `aep intelligence ci` and
+          `GET /intelligence/ci-clusters`. See ARCHITECTURE.md §43 /
+          docs/PHASE10.md.
+        test_paths: ["tests/test_ci_clustering.py",
+                     "tests/test_api_ci_clusters.py",
+                     "tests/test_cli_ci_clusters.py"]
+      - id: phase10.cost_intelligence
+        description: >
+          Wave 5: cost intelligence (src/aep/intelligence/cost_intelligence.py).
+          Honestly investigated first: no real cloud cost/billing API
+          integration or credentials exist anywhere in this platform
+          (src/aep/infra/cloud/'s only real adapter, AWS, has 11 read-only
+          capability areas and none of them is cost/billing; Azure/GCP/OCI
+          have no adapter at all; no cost/billing/usage table exists in
+          any supabase/migrations/*.sql). analyze_cost_intelligence()
+          always returns a BLOCKED CostSignal per known provider (reusing
+          infra.cloud.registry.known_providers(), not re-listing
+          providers) with an explicit reason - never a fabricated dollar
+          figure. Additionally surfaces real category='infrastructure'
+          findings whose description/resource mentions an idle/oversized/
+          duplicate/orphaned resource as an ADVISORY-labeled
+          "possible waste signal" - explicitly NOT real cost data.
+          Exposed via `aep intelligence cost` and `GET /intelligence/cost`.
+          See ARCHITECTURE.md §44 / docs/PHASE10.md.
+        test_paths: ["tests/test_cost_intelligence.py",
+                     "tests/test_api_cost.py",
+                     "tests/test_cli_cost.py"]
+      - id: phase10.predictive_remediation_decision_engine
+        description: >
+          Wave 10: predictive remediation decision engine
+          (src/aep/intelligence/predictive_remediation.py) - classifies,
+          NEVER executes. classify_remediation() reads (never bypasses or
+          reimplements) the existing PolicyEngine.evaluate() read path,
+          checks whether a matching skill exists for the finding's
+          category via a fixed category->skill_id table, and reuses Wave
+          2's detect_patterns()/compute_health_signals() for recurrence
+          count and REPEATED_FAILED_REMEDIATION - never inventing a
+          success history. Deterministic rule: INSUFFICIENT_EVIDENCE (no
+          skill for the category), NOT_SAFE (critical severity with no
+          real recorded prior successful remediation of the same
+          fingerprint), REQUIRES_APPROVAL (policy != ALLOW, thin evidence,
+          or REPEATED_FAILED_REMEDIATION CONFIRMED/LIKELY), and
+          SAFE_TO_AUTOMATE only when policy ALLOWs, a skill exists,
+          occurrence_count >= 2, AND a real prior successful remediation
+          of the exact fingerprint is on record. Any SAFE_TO_AUTOMATE
+          classification still must go through the existing orchestrator/
+          skill/policy pipeline - this module builds no second execution
+          path. This capability is substantively distinct from (and
+          supersedes in substance) the pre-existing
+          `advanced.predictive_remediation` stub above (left untouched,
+          test_paths: []). Exposed via `aep intelligence
+          remediation-decision` and `GET /intelligence/remediation-decision`.
+          See ARCHITECTURE.md §45 / docs/PHASE10.md.
+        test_paths: ["tests/test_predictive_remediation.py",
+                     "tests/test_api_remediation_decision.py",
+                     "tests/test_cli_remediation_decision.py"]
+      - id: phase10.engineering_health_score
+        description: >
+          Wave 12: per-project engineering health score
+          (src/aep/intelligence/engineering_health_score.py) - runs last,
+          aggregating (never reimplementing) risk_prediction.predict_risk(),
+          architecture.analyze_architecture(),
+          security_trends.analyze_security_trends(),
+          deployment_risk.forecast_deployment_risk(),
+          technical_debt.analyze_technical_debt(),
+          cost_intelligence.analyze_cost_intelligence() (status only -
+          real cost data is BLOCKED everywhere), ci_clustering.analyze_ci_clusters()
+          (always NOT_IMPLEMENTED), and
+          incident_patterns.compute_health_signals()/detect_patterns().
+          overall_state is always the worst subsystem state actually
+          present (never invented; UNKNOWN when a project has no evidence
+          at all for a subsystem). The optional overall_score is a plain
+          average of each subsystem's own visible 0-1 contribution, always
+          returned alongside its full breakdown - no unexplained number,
+          same discipline as prioritization.py/risk_prediction.py.
+          Distinct from Wave 2's `aep intelligence patterns` command
+          (discrete HealthSignal states) - this is the per-project
+          aggregate summary, cross-referenced explicitly in both CLI help
+          text and docs/PHASE10.md to avoid confusion. Exposed via `aep
+          intelligence health-score` and `GET /intelligence/health-score`.
+          See ARCHITECTURE.md §46 / docs/PHASE10.md.
+        test_paths: ["tests/test_engineering_health_score.py",
+                     "tests/test_api_health_score.py",
+                     "tests/test_cli_health_score.py"]

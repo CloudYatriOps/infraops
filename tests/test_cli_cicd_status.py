@@ -63,10 +63,16 @@ def test_status_payload_omits_cicd_when_not_requested(tmp_path: Path):
     assert "cicd" not in payload
 
 
-def test_deploy_status_reports_real_recorded_deployments(tmp_path: Path, policy_path, capsys):
+def test_deploy_status_reports_real_recorded_deployments(tmp_path: Path, policy_path, capsys,
+                                                            monkeypatch):
+    # `cmd_deploy_status` below reads through `db/factory.py` too, so it
+    # must be told explicitly to use the same sqlite backend the
+    # orchestrator above was built with (project id "p1" is not a valid
+    # UUID, so it cannot go through the Postgres facade).
+    monkeypatch.setenv("AEP_DB_BACKEND", "sqlite")
     project = ProjectConfig(id="p1", name="p1", repo_path=str(tmp_path), policy_path=policy_path)
     db_path = str(tmp_path / "s.db")
-    orch = build_orchestrator(db_path, project, deployment_state_dir=str(tmp_path / "deploy"))
+    orch = build_orchestrator(db_path, project, deployment_state_dir=str(tmp_path / "deploy"), db_backend="sqlite")
     gates = dict(tests_passed=True, cve_scan_clean=True, secrets_clean=True, sast_clean=True,
                  iac_clean=True, ci_pipeline_green=True, artifact_built=True,
                  artifact_provenance_recorded=True, required_approvals_met=True,

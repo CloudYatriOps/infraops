@@ -40,7 +40,7 @@ def test_inspect_mode_discovers_real_workflow_files(tmp_path: Path, policy_path)
     subprocess.run(["git", "-C", str(repo), "commit", "-m", "init"], check=True, capture_output=True)
 
     project = ProjectConfig(id="p1", name="p1", repo_path=str(repo), policy_path=policy_path)
-    orch = build_orchestrator(str(tmp_path / "s.db"), project)
+    orch = build_orchestrator(str(tmp_path / "s.db"), project, db_backend="sqlite")
     task = Task(id="t1", type="ci_inspect", project_id="p1", owner_agent="ci_intelligence_agent",
                 payload={"mode": "inspect", "project_root": str(repo)})
     orch.submit_graph("p1", [task])
@@ -53,7 +53,7 @@ def test_inspect_mode_discovers_real_workflow_files(tmp_path: Path, policy_path)
 
 def test_classify_routes_test_failure_to_the_existing_fix_chain(tmp_path: Path, policy_path):
     project = ProjectConfig(id="p1", name="p1", repo_path=str(tmp_path), policy_path=policy_path)
-    orch = build_orchestrator(str(tmp_path / "s.db"), project)
+    orch = build_orchestrator(str(tmp_path / "s.db"), project, db_backend="sqlite")
     task = Task(id="t1", type="ci_classify", project_id="p1", owner_agent="ci_intelligence_agent",
                 payload={"mode": "classify",
                          "failed_checks": [{"name": "unit-tests", "summary": "AssertionError"}],
@@ -73,7 +73,7 @@ def test_classify_routes_test_failure_to_the_existing_fix_chain(tmp_path: Path, 
 def test_classify_escalates_security_failure_without_touching_the_fix_chain(tmp_path: Path,
                                                                               policy_path):
     project = ProjectConfig(id="p1", name="p1", repo_path=str(tmp_path), policy_path=policy_path)
-    orch = build_orchestrator(str(tmp_path / "s.db"), project)
+    orch = build_orchestrator(str(tmp_path / "s.db"), project, db_backend="sqlite")
     task = Task(id="t1", type="ci_classify", project_id="p1", owner_agent="ci_intelligence_agent",
                 max_attempts=1,
                 payload={"mode": "classify",

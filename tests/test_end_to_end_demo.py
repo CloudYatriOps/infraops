@@ -14,7 +14,7 @@ def test_fix_bug_end_to_end_happy_path(tmp_path, demo_repo, policy_path):
     orch = build_orchestrator(
         db_path=str(tmp_path / "state.db"), project=project,
         mock_canned={"code_fix": FIXED_APP_PY},
-    )
+     db_backend="sqlite",)
 
     task_ids = orch.plan_fix_bug(
         project_id="demo", project_root=str(demo_repo),
@@ -67,7 +67,7 @@ def test_security_scan_blocks_downstream_tasks_on_detected_secret(
     orch = build_orchestrator(
         db_path=str(tmp_path / "state.db"), project=project,
         mock_canned={"code_fix": FIXED_APP_PY},
-    )
+     db_backend="sqlite",)
 
     task_ids = orch.plan_fix_bug(
         project_id="demo", project_root=str(demo_repo_with_secret),
@@ -91,7 +91,7 @@ def test_security_scan_blocks_downstream_tasks_on_detected_secret(
 
 def test_direct_push_to_main_is_denied_by_policy_gate(tmp_path, demo_repo, policy_path):
     project = _project(demo_repo, policy_path)
-    orch = build_orchestrator(db_path=str(tmp_path / "state.db"), project=project)
+    orch = build_orchestrator(db_path=str(tmp_path / "state.db"), project=project, db_backend="sqlite")
 
     deny_task = Task(
         id="deny-me", type="risky_push", project_id="demo", owner_agent="recon",
@@ -114,7 +114,7 @@ def test_resume_after_simulated_crash_continues_the_graph(tmp_path, demo_repo, p
     project = _project(demo_repo, policy_path)
     db_path = str(tmp_path / "state.db")
 
-    orch_a = build_orchestrator(db_path=db_path, project=project, mock_canned={"code_fix": FIXED_APP_PY})
+    orch_a = build_orchestrator(db_path=db_path, project=project, mock_canned={"code_fix": FIXED_APP_PY}, db_backend="sqlite")
     task_ids = orch_a.plan_fix_bug(
         project_id="demo", project_root=str(demo_repo),
         target_file="app.py", bug_description="fix add()",
@@ -128,7 +128,7 @@ def test_resume_after_simulated_crash_continues_the_graph(tmp_path, demo_repo, p
 
     # A fresh orchestrator instance, same durable DB file, must resume and
     # complete the remaining graph.
-    orch_b = build_orchestrator(db_path=db_path, project=project, mock_canned={"code_fix": FIXED_APP_PY})
+    orch_b = build_orchestrator(db_path=db_path, project=project, mock_canned={"code_fix": FIXED_APP_PY}, db_backend="sqlite")
     orch_b.resume("demo")
 
     statuses = {orch_b.store.get_task(tid).status for tid in task_ids}

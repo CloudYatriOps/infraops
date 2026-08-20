@@ -106,7 +106,7 @@ def test_full_lifecycle_code_to_verified_deployment(disposable_project: Path, po
 
     project = ProjectConfig(id="e2e", name="e2e", repo_path=str(repo), policy_path=policy_path)
     orch = build_orchestrator(str(tmp_path / "state.db"), project,
-                               deployment_state_dir=str(tmp_path / "deployments"))
+                               deployment_state_dir=str(tmp_path / "deployments"), db_backend="sqlite")
 
     # ---- TEST: real pytest against the real repo -------------------------
     test_task = Task(id="test-1", type="run_tests", project_id="e2e", owner_agent="testing_agent",
@@ -180,7 +180,7 @@ def test_deployment_failure_is_diagnosed_and_automatically_rolled_back(tmp_path:
     determined safe -> rollback occurs -> verification confirms recovery."""
     project = ProjectConfig(id="rb", name="rb", repo_path=str(tmp_path), policy_path=policy_path)
     state_dir = str(tmp_path / "deployments")
-    orch = build_orchestrator(str(tmp_path / "state.db"), project, deployment_state_dir=state_dir)
+    orch = build_orchestrator(str(tmp_path / "state.db"), project, deployment_state_dir=state_dir, db_backend="sqlite")
 
     # A GOOD version, deployed first (this becomes the rollback target).
     good_provider = LocalFixtureDeploymentProvider(state_dir)
@@ -240,7 +240,7 @@ def test_production_deployment_requires_approval_not_auto_remediated(tmp_path: P
     project = ProjectConfig(id="approval", name="approval", repo_path=str(tmp_path),
                              policy_path=policy_path)
     orch = build_orchestrator(str(tmp_path / "state.db"), project,
-                               deployment_state_dir=str(tmp_path / "deployments"))
+                               deployment_state_dir=str(tmp_path / "deployments"), db_backend="sqlite")
     gates = dict(tests_passed=True, cve_scan_clean=True, secrets_clean=True, sast_clean=True,
                  iac_clean=True, ci_pipeline_green=True, artifact_built=True,
                  artifact_provenance_recorded=True, required_approvals_met=True,

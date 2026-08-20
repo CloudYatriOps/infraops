@@ -116,7 +116,7 @@ def _orch(tmp_path, project, transport, db_name="state.db"):
         github_secret_manager=StaticSecretManager({"github_token": "TEST-TOKEN-MUST-NOT-LEAK"}),
         github_transport=transport,
         sleep_fn=lambda seconds: None,
-    )
+     db_backend="sqlite",)
 
 
 def test_dependency_remediation_opens_a_real_pr_via_existing_workflow(tmp_path, policy_path):

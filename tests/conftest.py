@@ -12,6 +12,16 @@ if str(SRC) not in sys.path:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Stage A.5's production default flipped `db/factory.py::build_state_store`
+# (and everything that delegates to it - `build_orchestrator`, `cli.py`) to
+# Postgres when no backend is explicitly requested. So that default path is
+# actually exercisable in this environment without every test needing to
+# know the local dev credential, set the documented local-dev password
+# (see docs/DATABASE.md's example DSN / tests/db_pg_helper.py's LOCAL_DSN)
+# as the default here - `setdefault` so a real environment's own
+# AEP_PG_PASSWORD always wins over this fallback.
+os.environ.setdefault("AEP_PG_PASSWORD", "aep_local_dev_only")
+
 
 @pytest.fixture()
 def policy_path() -> str:

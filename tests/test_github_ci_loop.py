@@ -93,6 +93,7 @@ def _build_orch(tmp_path, project, transport, db_name="state.db"):
         github_secret_manager=StaticSecretManager({"github_token": "TEST-TOKEN-MUST-NOT-LEAK"}),
         github_transport=transport,
         sleep_fn=lambda seconds: None,  # don't actually sleep through backoff in tests
+        db_backend="sqlite",
     )
 
 

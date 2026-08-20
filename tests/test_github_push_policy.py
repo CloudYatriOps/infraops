@@ -28,7 +28,7 @@ def _repo_with_remote(tmp_path: Path):
 
 def _orch(tmp_path, policy_path, repo_path):
     project = ProjectConfig(id="p", name="p", repo_path=repo_path, policy_path=policy_path)
-    return build_orchestrator(db_path=str(tmp_path / "s.db"), project=project, enable_github=True)
+    return build_orchestrator(db_path=str(tmp_path / "s.db"), project=project, enable_github=True, db_backend="sqlite")
 
 
 def test_push_to_main_via_github_push_branch_is_denied(tmp_path, policy_path):

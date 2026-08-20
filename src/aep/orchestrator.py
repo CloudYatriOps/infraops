@@ -11,6 +11,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+import json
+
 from .agents.base import Agent, build_context
 from .events import EventLogger
 from .failure import NO_AUTO_RETRY, FailureClassifier, classify
@@ -19,6 +21,8 @@ from .models import (
 )
 from .policy import PolicyEngine
 from .providers.router import ModelRouter
+from .skills.loader import SkillResolutionError, resolve_required_skills
+from .skills.registry import SkillRegistry
 from .state_store import StateStore, now_iso
 from .tool_registry import ToolRegistry
 
@@ -33,7 +37,8 @@ class Orchestrator:
                  policies: dict[str, PolicyEngine], projects: dict[str, ProjectConfig],
                  failure_classifier: Optional[FailureClassifier] = None,
                  circuit_breaker_threshold: int = 5,
-                 sleep_fn=time.sleep):
+                 sleep_fn=time.sleep,
+                 skill_registry: Optional[SkillRegistry] = None):
         self.store = store
         self.tool_registry = tool_registry
         self.router = router
@@ -46,6 +51,13 @@ class Orchestrator:
         self.circuit_breaker_threshold = circuit_breaker_threshold
         self.logger = EventLogger(store)
         self._sleep = sleep_fn
+        # Stage C Part 1: the ONE central skill-registry instance the
+        # orchestrator's gate resolves against (see `_apply_skill_gate`
+        # below and ARCHITECTURE.md §33) - never constructed a second time
+        # per-agent. May be None (skill gate becomes a strict no-op) for
+        # callers/tests that never pass one, preserving pre-Stage-C
+        # behavior exactly.
+        self.skill_registry = skill_registry
 
     # ---- Intake / graph construction --------------------------------
     def submit_graph(self, project_id: str, tasks: list[Task]) -> list[str]:
@@ -154,6 +166,58 @@ class Orchestrator:
             return TaskStatus.BLOCKED_ON_APPROVAL
         return None
 
+    def _apply_skill_gate(self, task: Task) -> Optional[TaskStatus]:
+        """Stage C central skill-enforcement gate (closes the one known
+        Stage B gap noted in ARCHITECTURE.md §32): resolves
+        `task.type`'s required skills, exactly once, right here, against
+        `self.skill_registry` - the single registry instance the
+        orchestrator owns. No agent file performs its own skill
+        resolution; this is the ONE place it happens (see the
+        `resolve_required_skills` grep check in the Stage C verification
+        notes).
+
+        A task type with no entry in `TASK_SKILL_RULES` resolves to an
+        empty required set and this is a no-op (returns None, task
+        proceeds) - Stage B/C are additive and never retroactively gate a
+        Phase 1-8 task type that never asked for skill resolution.
+
+        If `self.skill_registry` itself is None, the gate is a strict
+        no-op for every task type. This orchestrator instance was simply
+        never configured for Stage C skill enforcement (the default from
+        `build_orchestrator` unless `skill_registry`/
+        `skill_registry_backend` is explicitly passed) - all 638 Phase
+        1-8/Stage A/B tests construct orchestrators this way and must keep
+        behaving exactly as before. Enforcement only activates once a
+        registry is actually wired in, at which point a task type WITH a
+        rule that fails to resolve genuinely escalates (see below).
+        """
+        from .skills.loader import TASK_SKILL_RULES
+
+        if self.skill_registry is None:
+            return None
+
+        rule = TASK_SKILL_RULES.get(task.type)
+        if not rule or not rule.get("required"):
+            return None
+
+        try:
+            resolved = resolve_required_skills(task.type, self.skill_registry)
+        except SkillResolutionError as exc:
+            self.logger.log(actor="orchestrator", action="skill_gate_blocked",
+                             project_id=task.project_id, task_id=task.id,
+                             details={"task_type": task.type, "reason": str(exc)})
+            return TaskStatus.BLOCKED_ON_APPROVAL
+
+        task.evidence.append(Evidence(
+            source="skill_registry", captured_at=now_iso(), exit_code=0,
+            summary=json.dumps(resolved.evidence_payload()),
+        ))
+        self.logger.log(actor="orchestrator", action="skill_gate_passed",
+                         project_id=task.project_id, task_id=task.id,
+                         details={"task_type": task.type,
+                                  "required_skills": [f"{v.skill_id}@{v.version}" for v in resolved.required]})
+        return None
+
     def run_task(self, task: Task) -> None:
         if self.store.is_quarantined(task.project_id, task.type):
             task.status = TaskStatus.QUARANTINED
@@ -170,6 +234,12 @@ class Orchestrator:
             return
         if gate_status == TaskStatus.BLOCKED_ON_APPROVAL:
             task.status = TaskStatus.BLOCKED_ON_APPROVAL
+            self.store.save_task(task)
+            return
+
+        skill_gate_status = self._apply_skill_gate(task)
+        if skill_gate_status is not None:
+            task.status = skill_gate_status
             self.store.save_task(task)
             return
 

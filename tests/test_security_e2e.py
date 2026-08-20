@@ -44,7 +44,7 @@ def _init_repo(path) -> None:
 
 def _orch(tmp_path, project):
     return build_orchestrator(db_path=str(tmp_path / "state.db"), project=project,
-                               sleep_fn=lambda s: None)
+                               sleep_fn=lambda s: None, db_backend="sqlite")
 
 
 _gitleaks_available = (scanner_for_category("secret").check_availability(_probe).status

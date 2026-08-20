@@ -47,7 +47,7 @@ def dep_repo(tmp_path: Path) -> Path:
 
 def _orch(tmp_path, project):
     return build_orchestrator(db_path=str(tmp_path / "state.db"), project=project,
-                               sleep_fn=lambda s: None)
+                               sleep_fn=lambda s: None, db_backend="sqlite")
 
 
 def _finding(package="urllib3", installed="1.26.4", fixed=None, finding_id="PYSEC-TEST-1",
