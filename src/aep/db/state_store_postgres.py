@@ -90,10 +90,24 @@ def dsn_from_env() -> str:
     """Builds a DSN from `AEP_PG_*` env vars (falling back to the
     documented local-dev defaults), or `AEP_POSTGRES_DSN` verbatim if set.
     Never hardcodes a real credential - only ever reads from the
-    environment."""
+    environment.
+
+    Zero-config path: if NEITHER `AEP_POSTGRES_DSN` NOR any `AEP_PG_*`
+    part is explicitly set, nothing points AEP at a database the operator
+    actually configured - so this starts/reuses AEP's own local embedded
+    PostgreSQL instead of guessing at `localhost:5432` with a blank
+    password (see `local_postgres.ensure_local_postgres`). Setting ANY
+    `AEP_PG_*`/`AEP_POSTGRES_DSN` var (including pointing at Supabase or
+    any other remote Postgres) opts back into the explicit path below,
+    unchanged from before this existed."""
     explicit = os.environ.get("AEP_POSTGRES_DSN")
     if explicit:
         return explicit
+    explicit_parts = ("AEP_PG_HOST", "AEP_PG_PORT", "AEP_PG_USER",
+                      "AEP_PG_PASSWORD", "AEP_PG_DBNAME", "AEP_PG_SSLMODE")
+    if not any(os.environ.get(k) for k in explicit_parts):
+        from . import local_postgres
+        return local_postgres.ensure_local_postgres()
     return dsn_from_parts(
         host=os.environ.get("AEP_PG_HOST", "localhost"),
         port=int(os.environ.get("AEP_PG_PORT", "5432")),

@@ -1183,3 +1183,94 @@ command) and an `[project.scripts] aep = ...` verification pass.
 **Deployability: unchanged, `INTEGRATION_READY`.** No phase-completion
 tier changed - the 6 bugs fixed this pass are packaging/portability
 correctness fixes, not new roadmap capabilities.
+
+## Local-first zero-config database (this session, second local-machine pass)
+
+Implemented the product requirement that `pip install`-ing AEP needs no
+PostgreSQL install, no Supabase project, no remote database URL, and no
+password the user has to know.
+
+**Selected `pgserver`** (https://pypi.org/project/pgserver/) after real
+verification, not blind adoption: installed it for real, confirmed
+PostgreSQL 16.2 + pgvector 0.6.2 both work on Windows, confirmed
+`get_uri()` returns a passwordless loopback-only connection, confirmed
+data persists across `get_server()` calls in separate processes, and
+confirmed the port is ephemeral/per-data-dir (never collides with a
+system Postgres on 5432). **Hard constraint found**: `pgserver` 0.1.4
+ships wheels for CPython 3.9-3.12 only (verified against PyPI's file
+list) - no 3.13 wheel. `pyproject.toml`'s `requires-python` moved to
+`>=3.10,<3.13` to reflect this reality rather than claim broader support
+than actually installable.
+
+**Architecture**: `src/aep/db/local_postgres.py` (new) -
+`ensure_local_postgres()` provisions/reuses a local `pgserver` instance
+under the platform AEP data directory (`%LOCALAPPDATA%\AEP\postgres\` /
+`~/Library/Application Support/AEP/postgres/` / `~/.local/share/aep/postgres/`,
+`AEP_DATA_DIR`-overridable), runs `create extension vector` and
+`migrations.apply_pending()` automatically, and memoizes the URI
+per-process. `state_store_postgres.py::dsn_from_env()` - the ONE existing
+resolution point - now takes this path ONLY when NONE of
+`AEP_POSTGRES_DSN`/`AEP_PG_*` are set; setting any of them opts back out
+to the pre-existing explicit-Postgres behavior unchanged (this is how an
+operator still points AEP at Supabase or any other Postgres they manage
+themselves - nothing was removed, just no longer the only path).
+
+**Supabase audit finding**: grepped the whole repo for
+`SUPABASE_URL`/`SUPABASE_DB`/`SUPABASE_KEY`/`supabase.co` in source and
+`.env.example` - zero hits. Every existing "supabase" reference in code/
+docs is the `supabase/migrations/` directory name (the SQL
+source-of-truth location, unrelated to where AEP actually connects at
+runtime) - there was never a hardcoded Supabase runtime dependency to
+remove. README/Quick Start rewritten around the zero-config flow;
+`.env.example`'s `AEP_PG_PASSWORD` re-labeled OPTIONAL (only for the
+explicit-Postgres opt-out path); `docs/DATABASE.md` gets a new top
+section documenting this.
+
+**Verified live, this session:**
+- Real `pip install -e ".[all,dev]"` into a fresh Python 3.12 venv (the
+  only supported minor version chain on this machine, given the 3.13
+  wheel gap above), zero `AEP_PG_*`/`AEP_POSTGRES_DSN` env vars set.
+- `aep demo run` (zero config) - full happy path succeeds,
+  `persistence: postgres`, no password prompt, no PostgreSQL/Supabase
+  setup step.
+- Ran it TWICE as two separate OS process invocations - second run took
+  6.3s vs. the first's 20.6s (strong evidence of instance/data reuse, not
+  a fresh cluster init each time); a third, separate process query
+  confirmed BOTH runs' projects present in the `projects` table -
+  genuine cross-process persistence, not merely same-process caching.
+- `tests/test_local_postgres.py` (new, 3 tests): live provision + real
+  cross-"restart" (simulated via clearing the process-local memo)
+  persistence + pgvector presence + `dsn_from_env()`'s explicit-vs-local
+  branching - all pass.
+- Full regression suite on the 3.12 venv: **699 passed, 117 skipped, 9
+  failed, 6 errors** (411s). Every failure/error is either (a) the same
+  pre-existing "no local PostgreSQL reachable via explicit env" gap as
+  before (conftest.py's `AEP_PG_PASSWORD` default forces the explicit,
+  non-local-Postgres path for the whole test suite, by design - the new
+  zero-config path is intentionally test-suite-inert), (b) this
+  machine's network/tooling genuinely differing from the original
+  sandbox (`kubectl` present -> `BLOCKED` not `UNAVAILABLE`;
+  `api.github.com` actually reachable -> `200` not `403`/`000`), or (c) 4
+  newly-observed, pre-existing, unrelated failures documented as
+  BUG-0018 (not fixed this pass - none touch database/packaging code).
+
+**Not done this pass (disclosed, not silently skipped):**
+- UI packaged as a wheel-embedded static asset served by the Flask API -
+  not implemented; `cd ui && npm ci && npm run dev` is still how the UI
+  runs today.
+- `aep` bare-command one-command UX (auto-start API + serve UI + print
+  READY) - not implemented; the CLI still requires a subcommand.
+- Full BUG-0014 closure (migrations/demo fixture packaged inside the
+  wheel itself) - still open, same env-var escape hatch as before.
+- macOS/Linux verification of `pgserver` - only verified on this Windows
+  machine; PyPI's wheel listing supports macOS x86_64/arm64 and Linux
+  manylinux x86_64, but no actual install/run was performed on those
+  platforms this session.
+- Playwright/browser UI verification - still blocked, same reason as the
+  prior session (no reason to expect it's now unblocked, since the UI
+  dev-server path didn't change).
+
+**Deployability: unchanged, `INTEGRATION_READY`.** This is a genuine,
+substantial architecture addition (zero-config local database), not a
+roadmap-capability change - `config/roadmap.yaml` was not touched this
+pass.

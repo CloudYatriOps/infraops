@@ -1,5 +1,54 @@
 # Bug Fixes
 
+## BUG-0018 (found, NOT fixed this pass - documented per BUGFIX governance): 4 pre-existing test failures unrelated to this session's local-database work
+
+- **Date:** 2026-08-20
+- **Component:** `tests/test_deployment_risk.py::test_dependency_recurrence_immediate`, `tests/test_dependency_e2e_real.py::test_real_end_to_end_dependency_remediation`, `tests/test_dependency_github_loop.py` (3 tests). Found running the release-gate full suite while verifying this session's zero-config local-PostgreSQL change on a Python 3.12 venv.
+
+### Symptom
+All 4 fail consistently (re-ran twice, not flaky). None touch
+`aep.db.local_postgres`/`dsn_from_env` - `test_dependency_e2e_real.py` and
+`test_dependency_github_loop.py` explicitly pass `db_backend="sqlite"`,
+and `test_deployment_risk.py` uses in-memory fake repositories, so this
+session's local-Postgres change cannot be the cause.
+`test_dependency_recurrence_immediate` asserts a risk-horizon
+classification of `IMMEDIATE` for a fixture computed from
+`datetime.now()` minus a fixed day-count; it now resolves to `NEAR_TERM`
+instead - consistent with a horizon boundary computed relative to a
+fixture date that hasn't kept pace with the actual current date. The
+`test_dependency_e2e_real.py` failure shows only a `dependency_scan` task
+ever gets created (the downstream `dependency_remediate`/`run_tests`/
+`dependency_rescan` tasks, which only get planned once a real
+scan finds a vulnerability, never appear) - consistent with a live
+scanner (pip-audit/npm audit, hitting the real registry) no longer
+finding the specific historical CVE the fixture was built against.
+
+### Impact
+Not investigated further this pass - out of scope for a local-database/
+packaging release (none of the 4 relate to database, migrations, or
+packaging), and chasing them fully would have meant a second, unrelated
+investigation on top of an already large one. Recorded here rather than
+silently left as "some full-suite failures" with no trail, per this
+project's own rule against undocumented gaps.
+
+### Root cause (suspected, not confirmed)
+Time/data-rot in fixtures that compute "how long ago" relative to
+`datetime.now()` rather than a frozen clock, and/or live scanner results
+for CVE fixtures drifting as upstream vulnerability databases and fixed
+versions change over time.
+
+### Fix
+None applied this pass - flagged for a dedicated investigation.
+
+### Tests
+N/A - not fixed.
+
+### Lesson
+A test fixture built around "N days before now" or "the currently-known
+CVEs for this exact pinned version" is not stable indefinitely; it should
+either freeze time via dependency injection or be revisited periodically,
+not treated as a one-time-verified constant.
+
 ## BUG-0017: two test-only Windows robustness gaps (sqlite file lock, `curl` exception type)
 
 - **Date:** 2026-08-20

@@ -2,7 +2,7 @@
 name = "aep"
 version = "0.1.0"
 description = "Autonomous Engineering & DevSecOps Platform (Phase 1 core)"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "pyyaml>=6.0",
     "packaging>=21.0",
@@ -13,6 +13,14 @@ dependencies = [
     # optional-dependencies unless the default backend resolution changes.
     "psycopg2-binary>=2.9",
     "pgvector>=0.2",
+    # Zero-config local database. `pgserver` bundles real PostgreSQL 16.2
+    # + pgvector binaries for Windows/macOS/Linux so a plain `pip install`
+    # needs no PostgreSQL/Supabase/remote-DB setup - see
+    # src/aep/db/local_postgres.py. Only ships wheels for CPython 3.9-3.12
+    # today (verified against PyPI's file list for 0.1.4), which is why
+    # `requires-python`'s upper bound moved from unbounded to `<3.13` - a
+    # real, currently-load-bearing constraint, not an arbitrary one.
+    "pgserver>=0.1.4",
 ]
 
 [project.optional-dependencies]

@@ -56,69 +56,49 @@ continuously-reconciled version of this table):
 
 ## Quick Start
 
-Verified in this development sandbox: **Python 3.11.15** (package requires
-`>=3.10` per `pyproject.toml` — broader version compatibility not
-independently verified here), **Node v22.22.2** with **npm 10.9.7**
-(no `.nvmrc`/stricter engine constraint exists in `ui/package.json` — only
-tested with this Node/npm pair), **PostgreSQL 16.13** with the `pgvector`
-extension.
+**AEP is local-first by default**: it needs no PostgreSQL install, no
+Supabase project, and no database password from you. `pgserver` (a core
+dependency, not an extra) bundles real PostgreSQL 16.2 + pgvector binaries
+for Windows/macOS/Linux and AEP manages that local instance itself — see
+`docs/DATABASE.md` and `src/aep/db/local_postgres.py`. Current constraint,
+verified against PyPI's published wheel list: `pgserver` ships wheels for
+**CPython 3.9–3.12 only** (no 3.13 wheel yet), hence
+`requires-python = ">=3.10,<3.13"`.
 
 ```bash
 # 1. Clone and enter the repo
 git clone <this-repo-url> aep-platform && cd aep-platform
 
-# 2. Create and activate a virtualenv
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 3. Install dependencies. Base install includes psycopg2/pgvector (the
-#    default Postgres runtime backend is required, not optional - see
-#    BUGFIX.md BUG-0004). Extras: dev (pytest), api (Flask), anthropic
-#    (real AnthropicProvider), dependency-scanning (pip-audit), infra
-#    (boto3/hcl2/kubernetes-validate - BUG-0008), sbom (CycloneDX),
-#    github (requests, for the real GitHub client).
+# 2. Install (any Python 3.10/3.11/3.12 - no venv activation required for
+#    normal use; `pip install --user` or a venv both work)
 pip install -e ".[dev,api,anthropic]"
 # add more extras as needed, e.g.:
 #   pip install -e ".[dev,api,anthropic,infra,sbom,github,dependency-scanning]"
+# or the union of every real optional integration: pip install -e ".[all]"
 
-# 4. Configure environment
-cp .env.example .env
-# edit .env: at minimum set AEP_PG_PASSWORD to your local Postgres password
-export AEP_PG_PASSWORD=aep_local_dev_only   # matches this sandbox's local dev convention
-
-# 5. Start PostgreSQL
-service postgresql start   # or: sudo systemctl start postgresql / your platform's equivalent
-
-# 6. Apply migrations (there is no `aep migrate` CLI subcommand - this is
-#    the real, documented way; see docs/BOOTSTRAP.md / scripts/bootstrap.sh
-#    for the same steps run as one script)
-python3 - <<'PY'
-import psycopg2
-from aep.db import migrations
-conn = psycopg2.connect(
-    "host=localhost port=5432 user=aep password=aep_local_dev_only dbname=aep_platform"
-)
-migrations.apply_pending(conn)
-print(migrations.status(conn))
-PY
-
-# 7. Start the API (dev mode - disables auth locally, prints a loud warning)
-export AEP_API_DEV_MODE=1
-python3 -c "from aep.api.app import create_app; create_app().run(port=5000)"
-
-# 8. In another shell, start the UI
-cd ui && npm ci && npm run dev
-# open http://localhost:5173
-
-# 9. Run the reproducible demo (separately, in another shell)
+# 3. Run the reproducible demo - no PostgreSQL, no Supabase, no
+#    AEP_PG_PASSWORD needed; a local embedded Postgres is provisioned
+#    automatically on first use, under your platform's AEP data directory
+#    (see docs/DATABASE.md), and reused/persisted on every run after.
 aep demo readiness
 aep demo run
 aep demo run --scenario ambiguous
+
+# 4. Start the API (dev mode - disables auth locally, prints a loud warning)
+export AEP_API_DEV_MODE=1
+python3 -c "from aep.api.app import create_app; create_app().run(port=5000)"
+
+# 5. In another shell, start the UI
+cd ui && npm ci && npm run dev
+# open http://localhost:5173
 ```
 
-Alternatively, `bash scripts/bootstrap.sh` runs steps 3/4(partial)/6/
-sanity-check in one go (see `docs/BOOTSTRAP.md`) — it still expects
-`AEP_PG_PASSWORD` set and Postgres already running.
+**Pointing AEP at your own Postgres instead** (a shared dev server, a
+Supabase project, anything): set `AEP_POSTGRES_DSN` (or any `AEP_PG_*`
+var) — this opts back OUT of the local embedded database entirely and
+back into manual migration application, exactly as before. See
+`docs/DATABASE.md`. `bash scripts/bootstrap.sh` / `docs/BOOTSTRAP.md`
+document that explicit-Postgres path end to end.
 
 **Configuring an AI provider**: the platform runs the full demo without
 any AI provider configured, via `FakeAIProvider`. To use a real OmniRoute-

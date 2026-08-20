@@ -1,12 +1,58 @@
 # Database & Migrations (Phase 9 Stage A)
 
 This document describes the PostgreSQL persistence foundation added in
-Phase 9 Stage A. It does **not** describe a completed cutover: the
-existing SQLite `StateStore` (`src/aep/state_store.py`) remains Phase
-1-8's tested, default production path. This document is about the new,
-parallel, real-and-tested canonical schema built as the foundation for a
-future cutover - see ARCHITECTURE.md Section 30 for the full design
-discussion.
+Phase 9 Stage A. As of Stage A.5, PostgreSQL (not SQLite) is the default
+production path - see `src/aep/db/factory.py::resolve_backend`.
+ARCHITECTURE.md Section 30 has the full design discussion.
+
+## Local-first: zero-config embedded PostgreSQL (this release)
+
+`pip install`-ing AEP requires no separate PostgreSQL install, no
+Supabase project, and no database password. `src/aep/db/local_postgres.py`
+wraps `pgserver` (https://pypi.org/project/pgserver/) - a core, non-optional
+dependency that bundles real PostgreSQL 16.2 + pgvector binaries for
+Windows/macOS/Linux - to provision and manage a local instance under the
+platform's AEP data directory:
+
+| Platform | Data directory |
+|---|---|
+| Windows | `%LOCALAPPDATA%\AEP\postgres\` |
+| macOS   | `~/Library/Application Support/AEP/postgres/` |
+| Linux   | `${XDG_DATA_HOME:-~/.local/share}/aep/postgres/` |
+
+(`AEP_DATA_DIR` overrides the base directory for all platforms.)
+
+`state_store_postgres.py::dsn_from_env()` is the ONE place that decides:
+if NONE of `AEP_POSTGRES_DSN`/`AEP_PG_HOST`/`AEP_PG_PORT`/`AEP_PG_USER`/
+`AEP_PG_PASSWORD`/`AEP_PG_DBNAME`/`AEP_PG_SSLMODE` are set, it starts/
+reuses the local embedded instance (via `local_postgres.ensure_local_postgres()`,
+which also runs `create extension if not exists vector` and
+`migrations.apply_pending()` automatically). Setting ANY of those vars
+opts back out, pointing AEP at a Postgres you manage yourself instead
+(a shared dev server, a self-hosted Supabase project, cloud Postgres,
+anything) - unchanged from before this existed.
+
+`pgserver` provisions a passwordless, loopback-only, trust-auth
+`postgres` role for its local instance - there is no credential to
+generate, store, or ever show the user. It picks its own ephemeral port
+per data directory and never touches a `PostgreSQL` server the machine
+might already be running on port 5432. Two processes (e.g. the API and a
+CLI command) pointed at the same data directory share the same running
+instance rather than starting a second cluster (`pgserver`'s own
+reference-counted lifecycle - see its docs).
+
+**Known current constraint**: `pgserver` ships wheels for CPython
+3.9-3.12 only (no 3.13 wheel as of this writing, verified against PyPI's
+published file list for 0.1.4) - `pyproject.toml`'s `requires-python`
+reflects this (`>=3.10,<3.13`).
+
+**Not yet done** (real, disclosed gaps, not silently deferred): migration
+files (`supabase/migrations/`) and the demo fixture
+(`demo_project_template/`) are not yet packaged *inside* the wheel itself
+- see BUGFIX.md BUG-0014 - so a wheel install currently needs
+`AEP_MIGRATIONS_DIR`/`AEP_DEMO_TEMPLATE_DIR` set if the source checkout
+isn't also present. This does not affect `pip install -e .` (editable)
+installs, which is what `git clone` + Quick Start above uses.
 
 ## Layout
 
