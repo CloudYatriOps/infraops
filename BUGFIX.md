@@ -1,5 +1,117 @@
 # Bug Fixes
 
+## BUG-0024: installed-package `aep demo readiness` depended on source-checkout paths
+
+- **Date:** 2026-08-21
+- **Component:** `src/aep/progress/demo_readiness.py`; found running `aep demo readiness` against a genuinely clean, installed-only environment (a fresh virtualenv with ONLY the built wheel installed - no source checkout, no editable install), not assumed from a source-checkout run.
+
+### Symptom
+`pip install dist/aep_platform-0.1.0-py3-none-any.whl` into a fresh venv,
+then `aep --help` and `aep scan <repo>` both worked correctly, but `aep
+demo readiness` failed three of its seven checks, each looking for a
+source-checkout-relative path that does not exist inside an installed
+wheel:
+```
+C:\py\Lib\src\aep\orchestrator.py
+C:\py\Lib\src\aep\demo_template
+C:\py\Lib\tests\test_end_to_end_demo.py
+```
+
+### Root cause
+`demo_readiness.py` computed `REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent`
+and used it to build repo-relative paths for three checks (orchestrator
+source-text read, demo-fixture directory, e2e test file). That `.parent`
+chain assumes the installed module sits at a fixed depth below an actual
+repository root - true for `src/aep/progress/demo_readiness.py` in a
+source checkout, but in an installed wheel the module instead sits under
+`site-packages/aep/progress/demo_readiness.py`, so the same arithmetic
+lands four levels above `site-packages` (the Python installation's `Lib`
+directory) and none of the assembled paths exist. `src/aep/demo.py`'s
+`DEMO_TEMPLATE_DIR` and `src/aep/db/migrations.py`'s `MIGRATIONS_DIR` had
+already been fixed for exactly this class of bug (BUG-0014); this module
+was never updated to match.
+
+### Fix
+Three independent, package-aware replacements - no repo-root guessing
+anywhere in this module anymore:
+- **Orchestrator wiring check**: replaced the source-text read of a
+  guessed `orchestrator.py` path with an import/introspection check -
+  `import aep.orchestrator`, confirm `Orchestrator._apply_skill_gate`
+  exists, then `inspect.getsource(Orchestrator.run_task)` to confirm it's
+  actually called. Works identically in both modes because Python's own
+  import system (not this module) resolves `aep.orchestrator` correctly
+  either way; the import stays lazy (inside the function) to avoid the
+  import-order risk the original source-text approach was written to
+  dodge.
+- **Demo fixture check**: replaced the `REPO_ROOT`-relative path with
+  `importlib.resources.files("aep").joinpath("demo_template")` - a
+  standards-based package-resource lookup that needs no mode detection
+  at all, since `demo_template/` already ships inside the `aep` package
+  in both a source checkout and a wheel (BUG-0014).
+- **E2E test check**: added `_source_checkout_root()`, which searches
+  upward from this module's own location for a directory that actually
+  has both `pyproject.toml` and `tests/` (verified, not assumed at a
+  fixed depth). In a source checkout it runs the real
+  `tests/test_end_to_end_demo.py` and reports its real pass/fail,
+  labeled `SOURCE_TEST_AVAILABLE`. In an installed package (no such
+  directory found) it reports `INSTALLED_PACKAGE_VALIDATED` - `ok=True`,
+  not a failure - since a normal end user has no reason to have the
+  developer test suite installed at all, and the installed-package demo
+  flow is instead exercised directly via `aep demo run` (Part 7 of this
+  fix's own verification, and BUG-0024's regression class going
+  forward).
+
+Also added `aep --version`/`aep -V` (previously `aep --version` failed
+with `error: the following arguments are required: command` - there was
+no version flag at all), sourced from `importlib.metadata.version
+("aep-platform")` so there is exactly one place version drift could
+occur (package metadata, itself generated from `pyproject.toml` at build
+time) rather than a separately hand-typed string in the CLI.
+
+### Tests
+- `tests/test_demo_readiness.py` (new, 7 tests): unit-level coverage of
+  `_source_checkout_root()` (found in the real repo; `None` for a
+  simulated installed-package layout via a monkeypatched `__file__`),
+  the importlib.resources-based fixture check, the import-introspection
+  orchestrator check, and that installed-mode reporting never shells out
+  to pytest (asserted by making `subprocess.run` raise if called).
+- `tests/test_cli_ux.py`: added `test_version_flag_reports_package_metadata_version`.
+- Reproduced live end to end: built a fresh wheel, created a clean
+  virtualenv (`virtualenv`, not `venv` - see Lesson below) containing
+  ONLY that wheel (`pip show aep-platform` confirms `Location:` is the
+  venv's own site-packages, no editable install), and ran `aep
+  --version`, `aep --help`, `aep demo readiness` (now `READY`, e2e check
+  correctly reports `INSTALLED_PACKAGE_VALIDATED`), `aep demo run`
+  (happy path, full task graph `SUCCEEDED`), `aep demo run --scenario
+  ambiguous` (correct refusal), and `aep scan
+  <winfotest-infra>` - all from that clean environment, zero source
+  checkout or `tests/` involvement. Also confirmed `aep scan` on that
+  same real repo reports IaC `UNAVAILABLE` with no `[infra]` extra
+  installed (honest - `bc-python-hcl2` isn't a core dependency, see
+  BUG-0008) and correctly upgrades to `FAIL` with the same genuine
+  Terraform-local-backend finding as before once
+  `pip install bc-python-hcl2` is added to that same clean venv -
+  confirming the extras mechanism itself, not just a coincidentally
+  fuller dev environment, is what the scanner-status honesty depends on.
+- Full suite: see this pass's final report for the exact count.
+
+### Lesson
+BUG-0014 fixed this exact class of defect in two other modules
+(`demo.py`, `migrations.py`) but the fix was never generalized or swept
+across the codebase for a third instance living one level up in
+`aep.progress`, closest at hand for someone building the *readiness
+check* everyone would normally trust to catch exactly this. "Fixed in
+one place" is not the same claim as "fixed"; a real installed-wheel
+verification pass (not a source-checkout test run) is what caught it
+here, same as BUG-0014's own lesson. Separately: this session's clean-
+room verification needed a *bare* Python interpreter with the stdlib
+`venv` module to build the isolated test environment, and several
+already-present local venvs' base interpreters lacked it (an embeddable/
+stripped Python distribution) - `pip install virtualenv` (pure Python,
+no dependency on the host's `venv` module) is a reliable fallback for
+constructing a genuinely clean install-target environment when `venv`
+itself isn't available.
+
 ## BUG-0023: `_iac_result` swallowed scanner exceptions into a false PASS
 
 - **Date:** 2026-08-21

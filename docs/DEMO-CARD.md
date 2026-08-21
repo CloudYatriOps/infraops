@@ -22,11 +22,18 @@ the URL to open.
 Open the URL `aep` printed (e.g. http://127.0.0.1:53017).
 ```
 
+**CHECK VERSION**
+```
+aep --version
+```
+
 **RUN DEMO**
 ```
 aep demo readiness
 aep demo run
 ```
+Both work the same from a plain `pip install aep-platform` with no
+source checkout present - see BUGFIX.md BUG-0024.
 
 **RUN AMBIGUOUS DEMO**
 ```

@@ -1749,3 +1749,90 @@ Gateway, or Phase 10 intelligence-engine code was touched. A throwaway
 `.claude/launch.json` used for local design-QA (a static file server over
 a temp scratch directory) was removed before commit - session-specific,
 not part of the shipped product.
+
+## Visual QA fixes pushed; PyPI `aep-platform 0.1.0` already published out-of-band
+
+Between sessions, three real visual-QA bugs found and fixed (glass
+backdrop-filter dedup, missing button `:focus-visible`, `--skipped`
+contrast) were committed (`9653539`) and, on explicit user instruction,
+**pushed to `origin/main`**. Also on explicit instruction, a
+`twine upload` was attempted immediately after - and failed with `400
+File already exists`: **`aep-platform 0.1.0` was already live on PyPI**,
+uploaded `2026-08-21T08:58:53`, from a build that predates commit
+`9653539`'s three fixes (confirmed via `pypi.org/pypi/aep-platform/json`).
+PyPI filenames are immutable, so that upload cannot be corrected without
+a version bump - not done in that moment, since the user's instruction
+that turn was explicitly "do not modify code." **Anyone resuming this
+project should check `pypi.org/project/aep-platform/` before assuming
+`0.1.0` on PyPI matches the current repo** - as of the state described
+here, it does not.
+
+## BUG-0024: installed-package `aep demo readiness` fixed (this session)
+
+**Real finding, not invented for this pass:** `pip install` of the built
+wheel already worked for `aep --help`/`aep scan`, but `aep demo
+readiness` failed three checks that assumed a source-checkout-relative
+path (`REPO_ROOT = Path(__file__)....parent.parent.parent.parent` inside
+`src/aep/progress/demo_readiness.py`), the same class of bug BUG-0014
+fixed in `demo.py`/`migrations.py` but never swept to this third
+instance. Full root cause, fix, and reproduction are in BUGFIX.md
+BUG-0024 - not duplicated here.
+
+**Fix, package-aware, no repo-root guessing left in this module:**
+orchestrator-wiring check now imports `aep.orchestrator` and introspects
+the real `Orchestrator` class (`inspect.getsource` on `run_task`) instead
+of reading a guessed source path; the demo-fixture check now uses
+`importlib.resources.files("aep")` instead of a `REPO_ROOT`-relative
+path; the end-to-end-test check now searches upward for a real
+`pyproject.toml` + `tests/` marker (`_source_checkout_root()`) and
+reports `SOURCE_TEST_AVAILABLE` (runs the real test) in a checkout or
+`INSTALLED_PACKAGE_VALIDATED` (not a failure) in an installed package,
+rather than assuming a source checkout and reporting a false `FAIL` when
+one isn't present. Also added `aep --version`/`-V`, previously missing
+entirely (`error: the following arguments are required: command`),
+sourced from `importlib.metadata.version("aep-platform")` - single
+source of truth, no duplicated version string.
+
+**Verification, all from a genuinely clean environment:** built a fresh
+wheel, created an isolated `virtualenv` (the machine's other local venvs'
+base interpreters lacked the stdlib `venv` module - `pip install
+virtualenv` was the reliable fallback) containing ONLY that wheel
+(`pip show aep-platform` confirms `Location:` is the venv's own
+site-packages), and ran `aep --version`, `aep --help`, `aep demo
+readiness` (now `READY`), `aep demo run` (happy path, full graph
+`SUCCEEDED`), `aep demo run --scenario ambiguous` (correct refusal), and
+`aep scan <winfotest-infra>` - all from that clean environment, zero
+source checkout or `tests/` involved anywhere. `aep scan` on the same
+real repo correctly reported IaC `UNAVAILABLE` with no `[infra]` extra
+installed (honest - `bc-python-hcl2` isn't core, see BUG-0008), then
+correctly upgraded to `FAIL` with the same genuine Terraform-local-
+backend finding as every prior session's result once
+`pip install bc-python-hcl2` was added to that same clean venv - not
+just a coincidentally fuller dev environment producing the result, but
+the documented extras mechanism actually doing its job.
+
+**Testing:** new `tests/test_demo_readiness.py` (7 tests, unit-level
+coverage of the package-aware logic itself) plus one new test in
+`tests/test_cli_ux.py` for `--version`/`-V`. Focused run (demo readiness/
+CLI/demo/scan/e2e): 29 passed. Full suite (run once after stabilizing):
+see this session's final report for the exact count.
+
+**Package:** fresh wheel + sdist built, `twine check` PASSED both, wheel
+contents inspected (`demo_template/test_app.py` present and intentional
+- it's the runtime demo fixture, not the dev test suite; no `tests/`
+tree, no secrets, no `.env`). Version unchanged (0.1.0) - **this
+increases the drift already described above between the repo and the
+already-published PyPI `0.1.0`**; whoever next publishes for real should
+resolve that first (most likely: bump to 0.1.1 before any further
+upload). Not published this pass - explicit instruction.
+
+**Not done, deliberately:** `aep status`/`aep progress`'s own
+`REPO_ROOT`-relative `compute_progress()` call (in `cli.py` and
+`api/app.py`) was audited and left untouched - it's a genuinely
+DEVELOPMENT-only feature (AEP's own roadmap-progress self-check, which
+runs the internal `tests/` suite against `config/roadmap.yaml`) that has
+no meaningful end-user use case from an installed package, unrelated to
+demo readiness, and changing it was outside this pass's stated scope. A
+dead, unused `REPO_ROOT` constant left over in `demo.py` from before
+BUG-0014's fix was deleted as a small, zero-risk cleanup found during the
+same audit.

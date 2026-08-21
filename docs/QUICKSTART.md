@@ -86,6 +86,13 @@ aep demo run
 aep demo run --scenario ambiguous
 ```
 
+`aep demo readiness` and `aep demo run` work identically whether you're
+running from this cloned repository or from a plain `pip install
+aep-platform` with no source checkout anywhere on the machine - neither
+one needs `/src/`, `/tests/`, or a Git repository at runtime (see
+BUGFIX.md BUG-0024). `aep --version` (or `-V`) prints the installed
+version, read from package metadata.
+
 See `docs/DEMO-CARD.md` for a one-page cheat sheet and
 `docs/DEMO-SCENARIOS.md` for example prompts.
 

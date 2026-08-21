@@ -26,10 +26,20 @@ aep providers
 
 Prints a deterministic checklist (explicitly not a percentage) of
 concrete, checkable preconditions: orchestrator skill gate wired, AI
-gateway/OmniRoute adapter importable, `src/aep/demo_template/` fixture
-present, the real end-to-end demo test passes, PostgreSQL is the
-resolved default backend, and the `Evidence` model records what it must.
-Expected shape:
+gateway/OmniRoute adapter importable, the demo fixture package resource
+present, end-to-end demo test coverage, PostgreSQL is the resolved
+default backend, and the `Evidence` model records what it must.
+
+Every check is package-aware (BUGFIX.md BUG-0024): this works
+identically whether you're running from a source checkout or from a
+plain `pip install aep-platform` with no source repository present at
+all. The one check that differs by mode is end-to-end test coverage - a
+source checkout runs the real `tests/test_end_to_end_demo.py` and
+reports its real pass/fail (`SOURCE_TEST_AVAILABLE`); an installed
+package reports `INSTALLED_PACKAGE_VALIDATED` instead (still `[OK]`,
+never a false failure) since the developer test suite is intentionally
+not shipped - `aep demo run` below is how an installed package's demo
+flow is actually validated. Expected shape from a source checkout:
 
 ```
 === DEMO READINESS CHECKLIST ===
@@ -37,12 +47,18 @@ Expected shape:
 [OK] orchestrator skill gate wired (_apply_skill_gate)
 [OK] AI Gateway importable
 [OK] OmniRoute adapter importable
-[OK] src/aep/demo_template/ fixture present
-[OK] tests/test_end_to_end_demo.py passes - 4 passed in ...s
+[OK] demo fixture package resource present
+[OK] end-to-end demo test coverage - SOURCE_TEST_AVAILABLE - 4 passed in ...s
 [OK] PostgreSQL is the default persistence backend - resolved backend='postgres'
 [OK] Evidence model records source/exit_code/summary
 
 READY
+```
+
+From an installed package (`pip install aep-platform`, no source
+checkout anywhere), the fourth line instead reads:
+```
+[OK] end-to-end demo test coverage - INSTALLED_PACKAGE_VALIDATED - developer test suite is not packaged (by design); run `aep demo run` directly to validate an installed package
 ```
 
 Exits non-zero if any check fails, so it is safe to run as a pre-demo

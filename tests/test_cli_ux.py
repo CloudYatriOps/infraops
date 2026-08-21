@@ -30,6 +30,20 @@ def _run(*args, timeout=60):
     )
 
 
+def test_version_flag_reports_package_metadata_version():
+    """BUG-0024 Part 9: `aep --version`/`aep -V` must exist (argparse's
+    prior behaviour was `error: the following arguments are required:
+    command`) and must print a version sourced from installed package
+    metadata, never a duplicated literal."""
+    import importlib.metadata
+
+    expected = importlib.metadata.version("aep-platform")
+    for flag in ("--version", "-V"):
+        result = _run(flag)
+        assert result.returncode == 0, (flag, result.stderr)
+        assert result.stdout.strip() == f"aep {expected}"
+
+
 def test_bare_help_is_curated_and_short():
     result = _run("--help")
     assert result.returncode == 0

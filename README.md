@@ -113,7 +113,12 @@ rather than guessing at scope.
 There is no `aep doctor`. The same information comes from commands that
 already exist: `aep` / `aep start` (prints database, migrations, provider,
 UI, runtime at startup), `aep status`, `aep progress`, `aep providers`,
-`aep demo readiness`.
+`aep demo readiness`, `aep --version` (or `-V`).
+
+`aep demo readiness` and `aep demo run` work the same whether you
+installed from a clone or from `pip install aep-platform` with no
+source repository present at all - neither needs `/src/`, `/tests/`, or
+a Git checkout at runtime (see BUGFIX.md BUG-0024).
 
 ## External integrations (all optional)
 

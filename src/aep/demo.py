@@ -35,7 +35,6 @@ from .models import ProjectConfig, TaskStatus
 from .skills.definitions import seed_canonical_skills
 from .skills.factory import build_skill_registry
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # BUG-0014 closed: fixture now lives inside the package, so it ships in
 # the wheel. Env var retained as an operator escape hatch only.
 DEMO_TEMPLATE_DIR = Path(os.environ.get("AEP_DEMO_TEMPLATE_DIR")
