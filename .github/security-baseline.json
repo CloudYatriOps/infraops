@@ -1,0 +1,299 @@
+{
+  "_readme": "CI-only baseline of KNOWN, already-hand-verified `aep security` findings in this repository - never a change to AEP's own scanner or detection logic. Every entry here is either (a) a FAKE placeholder credential in a test fixture or a docs/BUGFIX.md entry describing a past fake-credential incident by name, or (b) a scanner-pattern reference inside src/aep/redaction.py itself, or (c) the intentional demo-fixture placeholder key in src/aep/demo_template/config.py that the real CEO demo scenario deliberately triggers and then fixes. None are real secrets - see BUGFIX.md and handoff.md for the full manual review. .github/workflows/ci.yml fails the build only on a finding NOT in this list (file+rule+line) - a genuinely new, unreviewed finding - never on one of these. Regenerate by re-running `aep security . --json` and re-deriving this file only after manually confirming any new/changed entry is not a real secret.",
+  "findings": [
+    {
+      "file": "ARCHITECTURE.md",
+      "rule": "aws_access_key_id",
+      "line": 923,
+      "description": "Potential committed secret (aws_access_key_id) detected in ARCHITECTURE.md"
+    },
+    {
+      "file": "ARCHITECTURE.md",
+      "rule": "github_url_embedded_credential",
+      "line": 534,
+      "description": "Potential committed secret (github_url_embedded_credential) detected in ARCHITECTURE.md"
+    },
+    {
+      "file": "BUGFIX.md",
+      "rule": "generic_api_key_assignment",
+      "line": 330,
+      "description": "Potential committed secret (generic_api_key_assignment) detected in BUGFIX.md"
+    },
+    {
+      "file": "docs/DATABASE.md",
+      "rule": "generic_api_key_assignment",
+      "line": 85,
+      "description": "Potential committed secret (generic_api_key_assignment) detected in docs/DATABASE.md"
+    },
+    {
+      "file": "handoff.md",
+      "rule": "aws_access_key_id",
+      "line": 1166,
+      "description": "Potential committed secret (aws_access_key_id) detected in handoff.md"
+    },
+    {
+      "file": "handoff.md",
+      "rule": "generic_api_key_assignment",
+      "line": 1355,
+      "description": "Potential committed secret (generic_api_key_assignment) detected in handoff.md"
+    },
+    {
+      "file": "handoff.md",
+      "rule": "generic_api_key_assignment",
+      "line": 1601,
+      "description": "Potential committed secret (generic_api_key_assignment) detected in handoff.md"
+    },
+    {
+      "file": "src/aep/demo_template/config.py",
+      "rule": "aws_access_key_id",
+      "line": 1,
+      "description": "Potential committed secret (aws_access_key_id) detected in src/aep/demo_template/config.py"
+    },
+    {
+      "file": "src/aep/redaction.py",
+      "rule": "generic_api_key_assignment",
+      "line": 44,
+      "description": "Potential committed secret (generic_api_key_assignment) detected in src/aep/redaction.py"
+    },
+    {
+      "file": "tests/conftest.py",
+      "rule": "aws_access_key_id",
+      "line": 84,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/conftest.py"
+    },
+    {
+      "file": "tests/db_pg_helper.py",
+      "rule": "generic_api_key_assignment",
+      "line": 15,
+      "description": "Potential committed secret (generic_api_key_assignment) detected in tests/db_pg_helper.py"
+    },
+    {
+      "file": "tests/fixtures/infra/kubernetes/workload.yaml",
+      "rule": "K8S_INGRESS_NO_TLS",
+      "line": null,
+      "description": "Ingress serves traffic without TLS"
+    },
+    {
+      "file": "tests/fixtures/infra/kubernetes/workload.yaml",
+      "rule": "K8S_NO_NETWORK_POLICY",
+      "line": null,
+      "description": "no NetworkPolicy is defined for the workloads in this repository"
+    },
+    {
+      "file": "tests/fixtures/infra/kubernetes/workload.yaml",
+      "rule": "K8S_SECRET_COMMITTED",
+      "line": null,
+      "description": "Secret data is committed to the repository (base64 is encoding, not encryption)"
+    },
+    {
+      "file": "tests/fixtures/infra/kubernetes/workload.yaml",
+      "rule": "K8S_SERVICE_NODEPORT",
+      "line": null,
+      "description": "Service is exposed on every node via NodePort"
+    },
+    {
+      "file": "tests/fixtures/infra/kubernetes/workload.yaml",
+      "rule": "generic_api_key_assignment",
+      "line": 57,
+      "description": "Potential committed secret (generic_api_key_assignment) detected in tests/fixtures/infra/kubernetes/workload.yaml"
+    },
+    {
+      "file": "tests/fixtures/infra/terraform/main.tf",
+      "rule": "TF_PROVIDER_CREDENTIAL",
+      "line": 14,
+      "description": "hardcoded credential in provider \"aws\" (argument `access_key`)"
+    },
+    {
+      "file": "tests/fixtures/infra/terraform/main.tf",
+      "rule": "TF_PROVIDER_CREDENTIAL",
+      "line": 14,
+      "description": "hardcoded credential in provider \"aws\" (argument `secret_key`)"
+    },
+    {
+      "file": "tests/fixtures/infra/terraform/main.tf",
+      "rule": "TF_PROVIDER_UNPINNED",
+      "line": 3,
+      "description": "provider \"aws\" has no version constraint"
+    },
+    {
+      "file": "tests/fixtures/infra/terraform/main.tf",
+      "rule": "TF_STATE_LOCAL_BACKEND",
+      "line": 3,
+      "description": "Terraform state uses the local backend"
+    },
+    {
+      "file": "tests/fixtures/infra/terraform/main.tf",
+      "rule": "aws_access_key_id",
+      "line": 16,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/fixtures/infra/terraform/main.tf"
+    },
+    {
+      "file": "tests/test_capabilities_and_scan.py",
+      "rule": "aws_access_key_id",
+      "line": 88,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_capabilities_and_scan.py"
+    },
+    {
+      "file": "tests/test_capabilities_and_scan.py",
+      "rule": "aws_access_key_id",
+      "line": 97,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_capabilities_and_scan.py"
+    },
+    {
+      "file": "tests/test_cli_security_status.py",
+      "rule": "aws_access_key_id",
+      "line": 74,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_cli_security_status.py"
+    },
+    {
+      "file": "tests/test_end_to_end_demo.py",
+      "rule": "aws_access_key_id",
+      "line": 89,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_end_to_end_demo.py"
+    },
+    {
+      "file": "tests/test_github_client.py",
+      "rule": "generic_api_key_assignment",
+      "line": 66,
+      "description": "Potential committed secret (generic_api_key_assignment) detected in tests/test_github_client.py"
+    },
+    {
+      "file": "tests/test_infra_terraform.py",
+      "rule": "aws_access_key_id",
+      "line": 37,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_infra_terraform.py"
+    },
+    {
+      "file": "tests/test_providers.py",
+      "rule": "aws_access_key_id",
+      "line": 19,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_providers.py"
+    },
+    {
+      "file": "tests/test_providers.py",
+      "rule": "aws_access_key_id",
+      "line": 22,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_providers.py"
+    },
+    {
+      "file": "tests/test_security_agent.py",
+      "rule": "aws_access_key_id",
+      "line": 33,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_agent.py"
+    },
+    {
+      "file": "tests/test_security_agent.py",
+      "rule": "aws_access_key_id",
+      "line": 84,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_agent.py"
+    },
+    {
+      "file": "tests/test_security_agent.py",
+      "rule": "aws_access_key_id",
+      "line": 90,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_agent.py"
+    },
+    {
+      "file": "tests/test_security_e2e.py",
+      "rule": "aws_access_key_id",
+      "line": 111,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_e2e.py"
+    },
+    {
+      "file": "tests/test_security_e2e.py",
+      "rule": "aws_access_key_id",
+      "line": 66,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_e2e.py"
+    },
+    {
+      "file": "tests/test_security_e2e.py",
+      "rule": "aws_access_key_id",
+      "line": 94,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_e2e.py"
+    },
+    {
+      "file": "tests/test_security_models.py",
+      "rule": "aws_access_key_id",
+      "line": 42,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_models.py"
+    },
+    {
+      "file": "tests/test_security_models.py",
+      "rule": "aws_access_key_id",
+      "line": 43,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_models.py"
+    },
+    {
+      "file": "tests/test_security_remediation.py",
+      "rule": "aws_access_key_id",
+      "line": 29,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_remediation.py"
+    },
+    {
+      "file": "tests/test_security_remediation.py",
+      "rule": "aws_access_key_id",
+      "line": 30,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_remediation.py"
+    },
+    {
+      "file": "tests/test_security_remediation.py",
+      "rule": "aws_access_key_id",
+      "line": 36,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_remediation.py"
+    },
+    {
+      "file": "tests/test_security_remediation.py",
+      "rule": "aws_access_key_id",
+      "line": 41,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_remediation.py"
+    },
+    {
+      "file": "tests/test_security_remediation.py",
+      "rule": "aws_access_key_id",
+      "line": 50,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_remediation.py"
+    },
+    {
+      "file": "tests/test_security_remediation.py",
+      "rule": "aws_access_key_id",
+      "line": 54,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_remediation.py"
+    },
+    {
+      "file": "tests/test_security_remediation.py",
+      "rule": "aws_access_key_id",
+      "line": 62,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_remediation.py"
+    },
+    {
+      "file": "tests/test_security_remediation.py",
+      "rule": "aws_access_key_id",
+      "line": 65,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_remediation.py"
+    },
+    {
+      "file": "tests/test_security_scanners.py",
+      "rule": "aws_access_key_id",
+      "line": 42,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_scanners.py"
+    },
+    {
+      "file": "tests/test_security_scanners.py",
+      "rule": "aws_access_key_id",
+      "line": 55,
+      "description": "Potential committed secret (aws_access_key_id) detected in tests/test_security_scanners.py"
+    },
+    {
+      "file": "tests/test_security_suppressions.py",
+      "rule": "generic_api_key_assignment",
+      "line": 29,
+      "description": "Potential committed secret (generic_api_key_assignment) detected in tests/test_security_suppressions.py"
+    },
+    {
+      "file": "tests/test_security_suppressions.py",
+      "rule": "generic_api_key_assignment",
+      "line": 35,
+      "description": "Potential committed secret (generic_api_key_assignment) detected in tests/test_security_suppressions.py"
+    }
+  ]
+}

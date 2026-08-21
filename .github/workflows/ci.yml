@@ -34,17 +34,18 @@ jobs:
         run: python -m pytest -q
 
       - name: Built-in security scan of this repository (dogfooding `aep security`)
-        # Advisory, not a hard gate: this repo's OWN source necessarily
-        # contains secret-shaped text (src/aep/redaction.py's own
-        # detection patterns, src/aep/demo_template/config.py's
-        # intentional demo fixture placeholder key) and docs/BUGFIX.md
-        # entries describing past fake-credential incidents by name -
-        # confirmed by hand, every current FAIL is one of those, not a
-        # real secret. A hard PASS/FAIL gate here would make this check
-        # permanently red for reasons that are not incidents. Printed in
-        # full so a reviewer sees it on every PR; does not fail the job.
-        continue-on-error: true
-        run: python -m aep.cli security . --json
+        # This repo's OWN source necessarily contains secret-shaped text
+        # (src/aep/redaction.py's own detection patterns, the intentional
+        # demo-fixture placeholder key, docs/BUGFIX.md entries describing
+        # past fake-credential incidents by name) - a blanket PASS/FAIL
+        # gate on `aep security`'s own status would be permanently red
+        # for reasons that are not incidents, and disabling the scan
+        # entirely would stop catching a REAL new secret. Runs AEP's
+        # real, unmodified scanner in full, then fails the build only on
+        # a finding that isn't already in the hand-reviewed
+        # .github/security-baseline.json - see that file's `_readme` and
+        # .github/check_security_baseline.py for the full reasoning.
+        run: python .github/check_security_baseline.py
 
       - uses: actions/setup-node@v4
         with:
