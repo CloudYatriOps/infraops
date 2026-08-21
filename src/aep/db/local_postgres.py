@@ -23,6 +23,7 @@ this.
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 import sys
@@ -82,23 +83,46 @@ def _start_server(pgserver, data_dir: Path) -> str:
     inside the dependency. Treating that as a failed attempt (rather than
     trusting the handle) is what makes the retry actually cover the
     crash-recovery case.
+
+    Real-user-reported UX defect this also fixes: `pgserver` itself logs
+    a raw `_logger.error("Timeout starting server...")` (Python logging,
+    handler-of-last-resort straight to stderr) on EVERY attempt this loop
+    exists specifically to retry through - WAL crash recovery routinely
+    exceeds its fixed 10s `pg_ctl` timeout. That line reaches the user's
+    terminal with zero framing, reading as a fatal crash moments before
+    the real PostgreSQL log says "database system is ready to accept
+    connections" - unacceptable UX for a condition this loop already
+    handles correctly underneath. `pgserver`'s logger is muted only for
+    the duration of this retry loop (never its behavior, never the
+    recovery logic) so only AEP's own framed progress messages reach the
+    console; a genuine final failure still raises `DatabaseRecoveryRequired`
+    below with the real underlying error and the on-disk log path named.
     """
     last_exc: Optional[BaseException] = None
-    for _ in range(_START_ATTEMPTS):
-        try:
-            server = pgserver.get_server(str(data_dir))
-            return server.get_uri()
-        except Exception as exc:  # noqa: BLE001 - re-raised as a typed error below
-            last_exc = exc
-            time.sleep(_START_RETRY_SLEEP_SECONDS)
-            # `pg_ctl -w` timing out does NOT mean the server failed to
-            # start - after an unclean shutdown it is usually just still
-            # replaying WAL, and it finishes and starts listening moments
-            # later. Before spending another start attempt (or giving up),
-            # check whether a postmaster is now actually up and use it.
-            uri = _running_server_uri(pgserver, data_dir)
-            if uri is not None:
-                return uri
+    pgserver_logger = logging.getLogger("pgserver")
+    previous_level = pgserver_logger.level
+    pgserver_logger.setLevel(logging.CRITICAL)
+    try:
+        for attempt in range(_START_ATTEMPTS):
+            try:
+                server = pgserver.get_server(str(data_dir))
+                return server.get_uri()
+            except Exception as exc:  # noqa: BLE001 - re-raised as a typed error below
+                last_exc = exc
+                print(f"Waiting for PostgreSQL readiness... "
+                      f"(WAL recovery can take longer than a fresh start; "
+                      f"attempt {attempt + 1}/{_START_ATTEMPTS})", flush=True)
+                time.sleep(_START_RETRY_SLEEP_SECONDS)
+                # `pg_ctl -w` timing out does NOT mean the server failed to
+                # start - after an unclean shutdown it is usually just still
+                # replaying WAL, and it finishes and starts listening moments
+                # later. Before spending another start attempt (or giving up),
+                # check whether a postmaster is now actually up and use it.
+                uri = _running_server_uri(pgserver, data_dir)
+                if uri is not None:
+                    return uri
+    finally:
+        pgserver_logger.setLevel(previous_level)
     raise DatabaseRecoveryRequired(
         "AEP database requires recovery. Data preserved - nothing was deleted.\n"
         f"  data directory: {data_dir}\n"
@@ -168,6 +192,7 @@ def ensure_local_postgres() -> str:
 
     data_dir = get_data_dir() / "postgres"
     data_dir.mkdir(parents=True, exist_ok=True)
+    print("Starting local database...", flush=True)
     uri = _start_server(pgserver, data_dir)
 
     # BUG-0020: `pg_ctl -w` returning does NOT mean the database is ready
@@ -177,6 +202,7 @@ def ensure_local_postgres() -> str:
     # that is the correct, non-destructive recovery - the data is fine and
     # Postgres is in the middle of protecting it.
     _wait_until_accepting_connections(uri, data_dir)
+    print("PostgreSQL READY", flush=True)
 
     from . import migrations
     import psycopg2
@@ -212,12 +238,22 @@ def _wait_until_accepting_connections(uri: str, data_dir: Path,
 
     deadline = time.monotonic() + timeout_seconds
     last_exc: Optional[BaseException] = None
+    last_notice = 0.0
     while time.monotonic() < deadline:
         try:
             psycopg2.connect(uri, connect_timeout=5).close()
             return
         except Exception as exc:  # noqa: BLE001 - retried, then reported below
             last_exc = exc
+            # A silent multi-second wait reads as a hang, not progress -
+            # a periodic reassurance (not per-second noise) is what turns
+            # "is this stuck?" into "it's still recovering, as expected".
+            now = time.monotonic()
+            if now - last_notice >= 5.0:
+                print("Waiting for PostgreSQL readiness... "
+                      "(replaying write-ahead log after an unclean shutdown is normal)",
+                      flush=True)
+                last_notice = now
             time.sleep(1.0)
 
     raise DatabaseRecoveryRequired(

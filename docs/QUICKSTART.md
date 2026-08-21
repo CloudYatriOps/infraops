@@ -63,8 +63,11 @@ API, and serves the pre-built UI — printing progress as it goes:
 
 ```
 AEP starting...
+Starting local database...
+PostgreSQL READY
 Local database: READY  (C:\Users\you\AppData\Local\AEP)
 Migrations:     READY
+Local Engineering: READY
 AI Provider:    NOT_CONFIGURED  (OmniRoute is not configured: missing env var(s) ['AI_BASE_URL', 'AI_CREDENTIAL'])
 UI:             READY
 Runtime:        READY
@@ -72,13 +75,38 @@ Runtime:        READY
 Open: http://127.0.0.1:53017
 ```
 
-## 4. Open the UI
+`Local Engineering: READY` and `AI Provider: NOT_CONFIGURED` are
+independent lines on purpose — an AI provider is entirely optional (see
+`docs/README-FULL.md`); AEP is never held back from `READY` because one
+isn't configured. If a prior run was killed ungracefully, PostgreSQL
+performs normal write-ahead-log crash recovery before accepting
+connections, and you'll see a few `Waiting for PostgreSQL readiness...`
+lines instead of an immediate `PostgreSQL READY` — that is expected,
+non-destructive recovery in progress, not a failure (see BUGFIX.md
+BUG-0020).
 
-Open the printed URL in a browser. Dashboard, Projects, Task Execution,
-Findings, Incidents, Approvals, Runtime, Evidence, Providers, and the
-Phase 10 intelligence panels are all there — see `docs/UI-GUIDE.md`.
+## 4. Open the UI and analyze your own project
 
-## 5. Run the demo
+Open the printed URL in a browser. This is the primary workflow:
+
+```
+Projects → Add existing project → Scan Now → Findings / Report / Timeline
+```
+
+Enter the local path to any repository already on your machine (e.g.
+`C:\path\to\your-project`) and click **Scan Now** — AEP auto-detects
+what it is and runs only the applicable checks, exactly like
+`aep scan <path>` on the CLI (same engine, same result). The scan is
+persisted: it survives a browser refresh and an AEP restart, and
+**Rerun Scan** keeps every previous run so you can compare. **Delete
+Project** only removes AEP's own record, never your files or Git
+history.
+
+Dashboard, Task Execution, Findings, Incidents, Approvals, Runtime,
+Evidence, Providers, and the Phase 10 intelligence panels are all there
+too — see `docs/UI-GUIDE.md`.
+
+## 5. Release/QA demo (developer tool, not required for normal use)
 
 ```bash
 aep demo readiness

@@ -123,22 +123,287 @@ function ProjectIntel({ projectId }: { projectId: string }) {
   )
 }
 
+// ---- In-product documentation (product spec Part 16) -------------------
+// Plain <details>/<summary> - no JS state, no dumping the full
+// ARCHITECTURE.md into the UI. Placed near the screens each question is
+// actually relevant to, not as one giant help page.
+const FAQ: Record<string, { q: string; a: string }[]> = {
+  projects: [
+    { q: 'What does AEP do?', a: 'Detects what a repository actually is, then runs only the security/infrastructure checks that apply to it - read-only, no external service required.' },
+    { q: 'Does AEP modify my repository?', a: 'No. A scan only reads files. Remediation is always a separate, explicit action - AEP never changes, commits, or deploys your code as a side effect of scanning it.' },
+    { q: 'Can AEP delete my source code?', a: 'No. "Delete Project" only removes AEP\u2019s own record of the project - it never touches files on disk, your Git history, or anything outside AEP\u2019s own database.' },
+  ],
+  scan: [
+    { q: 'How does a project scan work?', a: 'AEP inspects the repository for evidence (file types, manifests, IaC files, CI config), then runs each applicable analyzer once and records the result.' },
+    { q: 'What happens during a scan?', a: 'Only reading: detecting capabilities, then running the secret/SAST/dependency/IaC/container analyzers that apply. Nothing is installed, written, or executed in your repository.' },
+    { q: 'What does RERUN do?', a: 'Runs the exact same scan again as a brand-new, separately-recorded run. Your previous scan and its findings are kept, never overwritten - the Timeline and history always show every run.' },
+  ],
+  findings: [
+    { q: 'What does PASS mean?', a: 'The check applies to this repository, it ran, and found nothing.' },
+    { q: 'What does SKIPPED mean?', a: 'The check does not apply here at all - e.g. no Terraform files, so IaC has nothing to check. Nothing is wrong.' },
+    { q: 'What does BLOCKED mean?', a: 'The check applies, but something outside AEP (registry access, credentials) prevents it from running right now.' },
+  ],
+  report: [
+    { q: 'What does RERUN do?', a: 'Creates a new scan record and compares it against the previous one, so you can see what\u2019s new, unchanged, or resolved.' },
+  ],
+}
+
+function HelpNote({ topic }: { topic: keyof typeof FAQ }) {
+  return (
+    <details style={{ marginTop: 10 }}>
+      <summary style={{ cursor: 'pointer', color: 'var(--text-dim)', fontSize: 12.5 }}>Help</summary>
+      <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
+        {FAQ[topic].map((item) => (
+          <div key={item.q}>
+            <div style={{ color: 'var(--text)', fontWeight: 600, fontSize: 12.5 }}>{item.q}</div>
+            <div style={{ color: 'var(--text-dim)', fontSize: 12.5 }}>{item.a}</div>
+          </div>
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function downloadBlob(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const ANALYSIS_STATE_LABEL: Record<string, string> = {
+  NEVER_SCANNED: 'not configured', QUEUED: 'blocked', SCANNING: 'blocked',
+  COMPLETED: 'healthy', COMPLETED_WITH_FINDINGS: 'medium', FAILED: 'fail', CANCELLED: 'not configured',
+}
+
+// ---- Project Detail (product spec Part 7): scan lifecycle, findings, ---
+// report, timeline - all reading/writing through the SAME `aep scan`
+// engine and persisted records the CLI produces, never a second UI-only
+// scanner or a client-side-only view of unsaved data.
+function ProjectDetail({ project, onBack, onDeleted }: { project: any; onBack: () => void; onDeleted: () => void }) {
+  const [proj, setProj] = useState(project)
+  const [scansData, setScansData] = useState<any>(null)
+  const [selectedScan, setSelectedScan] = useState<any>(null)
+  const [selectedFinding, setSelectedFinding] = useState<any>(null)
+  const [scanning, setScanning] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const reloadAll = async (selectId?: string) => {
+    const [freshProj, scans] = await Promise.all([api.getProject(proj.id), api.listScans(proj.id)])
+    setProj(freshProj)
+    setScansData(scans)
+    const targetId = selectId ?? scans.scans[0]?.scan_id
+    setSelectedScan(targetId ? await api.getScan(proj.id, targetId) : null)
+  }
+
+  useEffect(() => { reloadAll() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const scanNow = async () => {
+    setScanning(true); setError(null)
+    try {
+      const result = await api.scanNow(proj.id)
+      await reloadAll(result.task_id)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const doDelete = async () => {
+    await api.deleteProject(proj.id)
+    onDeleted()
+  }
+
+  const downloadReport = async (format: 'json' | 'markdown') => {
+    if (format === 'json') {
+      const report = await api.getReport(proj.id)
+      downloadBlob(JSON.stringify(report, null, 2), `${proj.name}-report.json`, 'application/json')
+    } else {
+      const md = await api.getReportMarkdown(proj.id)
+      downloadBlob(md, `${proj.name}-report.md`, 'text/markdown')
+    }
+  }
+
+  const hasScans = (scansData?.scans?.length ?? 0) > 0
+  const report = selectedScan?.report
+  const analyzers = report?.analyzers ?? []
+  const findings = analyzers.flatMap((a: any) => (a.findings || []).map((f: any) => ({ ...f, analyzer: a.analyzer })))
+  const skipped = analyzers.filter((a: any) => a.status === 'SKIPPED')
+  const blocked = analyzers.filter((a: any) => a.status === 'BLOCKED' || a.status === 'UNAVAILABLE')
+  const analyzed = analyzers.filter((a: any) => a.status === 'PASS' || a.status === 'FAIL')
+
+  return (
+    <div>
+      <button onClick={onBack} style={{ marginBottom: 12 }}>&larr; Back to Projects</button>
+
+      {/* TOP */}
+      <div className="glass">
+        <h3 style={{ marginBottom: 6 }}>{proj.name}</h3>
+        <p style={{ marginBottom: 4 }}><strong style={{ color: 'var(--text)' }}>Repository:</strong> {proj.repo_path}</p>
+        <p style={{ marginBottom: 4 }}>
+          <strong style={{ color: 'var(--text)' }}>Detected capabilities:</strong>{' '}
+          {proj.detected_capabilities?.length ? proj.detected_capabilities.join(', ') : '(none detected)'}
+        </p>
+        <p style={{ marginBottom: 4 }}>
+          <strong style={{ color: 'var(--text)' }}>Last scan:</strong>{' '}
+          {proj.last_scan_at ? new Date(proj.last_scan_at).toLocaleString() : 'Never'}
+        </p>
+        <p style={{ marginBottom: 12 }}>
+          <strong style={{ color: 'var(--text)' }}>Analysis:</strong>{' '}
+          <StatusBadge value={ANALYSIS_STATE_LABEL[proj.analysis_state] ?? proj.analysis_state} />{' '}
+          <span style={{ color: 'var(--text-dim)' }}>{proj.analysis_state}</span>
+        </p>
+        {error && <ErrorBox message={error} />}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={scanNow} disabled={scanning}>
+            {scanning ? 'Scanning...' : hasScans ? 'Rerun Scan' : 'Scan Now'}
+          </button>
+          <button onClick={() => setConfirmDelete(true)}>Delete Project</button>
+        </div>
+        {confirmDelete && (
+          <div className="badge" style={{ marginTop: 12, background: 'var(--fail-dim)', color: 'var(--fail)',
+                                           padding: '10px 14px', display: 'block' }}>
+            <p style={{ marginBottom: 8 }}>Remove project from AEP? This does NOT delete files from disk,
+              your Git repository, or scan history.</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={doDelete}>Confirm delete</button>
+              <button onClick={() => setConfirmDelete(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+        <HelpNote topic="projects" />
+      </div>
+
+      {!hasScans && (
+        <div className="glass">
+          <h4>NOT YET SCANNED</h4>
+          <p>Repository detected: {proj.detected_capabilities?.length ? proj.detected_capabilities.join(', ') : '(nothing detected yet)'}</p>
+          <p style={{ marginBottom: 0 }}>Click <strong style={{ color: 'var(--text)' }}>Scan Now</strong> above to run AEP's read-only analysis.</p>
+          <HelpNote topic="scan" />
+        </div>
+      )}
+
+      {hasScans && report && (
+        <>
+          {/* ANALYSIS SUMMARY */}
+          <div className="glass">
+            <h4>Analysis summary</h4>
+            <p><strong style={{ color: 'var(--text)' }}>Detected:</strong> {report.project.capabilities.join(', ') || '(none)'}</p>
+            <p><strong style={{ color: 'var(--text)' }}>Analyzed:</strong> {analyzed.map((a: any) => a.analyzer).join(', ') || '(none)'}</p>
+            <p><strong style={{ color: 'var(--text)' }}>Skipped:</strong> {skipped.map((a: any) => a.analyzer).join(', ') || '(none)'}</p>
+            {blocked.length > 0 && (
+              <p style={{ marginBottom: 0 }}><strong style={{ color: 'var(--text)' }}>Blocked:</strong> {blocked.map((a: any) => a.analyzer).join(', ')}</p>
+            )}
+          </div>
+
+          {/* SECURITY POSTURE */}
+          <div className="glass">
+            <h4>Security posture</h4>
+            <Table
+              columns={['Check', 'Status', 'Reason']}
+              rows={analyzers.map((a: any) => [a.analyzer, <StatusBadge value={a.status} />, a.reason])}
+            />
+            <HelpNote topic="findings" />
+          </div>
+
+          {/* FINDINGS */}
+          <div className="glass">
+            <h4>Findings ({report.total_findings})</h4>
+            {findings.length === 0 && <p style={{ marginBottom: 0 }}>No findings.</p>}
+            {findings.length > 0 && (
+              <Table
+                columns={['Severity', 'Category', 'File', 'Line', 'Description', '']}
+                rows={findings.map((f: any, i: number) => [
+                  <StatusBadge value={f.severity} />, f.analyzer, f.file, f.line, f.description,
+                  <button onClick={() => setSelectedFinding(f)}>Details</button>,
+                ])}
+              />
+            )}
+          </div>
+          {selectedFinding && (
+            <div className="glass">
+              <h4>Finding detail</h4>
+              <p><strong style={{ color: 'var(--text)' }}>Location:</strong> {selectedFinding.file}:{selectedFinding.line}</p>
+              <p><strong style={{ color: 'var(--text)' }}>Severity:</strong> <StatusBadge value={selectedFinding.severity} /></p>
+              <p><strong style={{ color: 'var(--text)' }}>Rule:</strong> {selectedFinding.rule}</p>
+              <p><strong style={{ color: 'var(--text)' }}>Explanation:</strong> {selectedFinding.description}</p>
+              <p style={{ marginBottom: 0 }}><strong style={{ color: 'var(--text)' }}>Recommended next action:</strong>{' '}
+                Review and remediate manually - AEP never applies a fix automatically.</p>
+              <button onClick={() => setSelectedFinding(null)} style={{ marginTop: 10 }}>Close</button>
+            </div>
+          )}
+
+          {/* REPORT */}
+          <div className="glass">
+            <h4>Report</h4>
+            <p>Security readiness: <StatusBadge value={report.security_readiness} /> <span style={{ color: 'var(--text-faint)' }}>(read-only - AEP made no changes)</span></p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => downloadReport('json')}>Download report (JSON)</button>
+              <button onClick={() => downloadReport('markdown')}>Download report (Markdown)</button>
+            </div>
+            <HelpNote topic="report" />
+          </div>
+
+          {/* TIMELINE */}
+          <div className="glass" style={{ marginBottom: 0 }}>
+            <h4>Timeline</h4>
+            <Table
+              columns={['Time', 'Event']}
+              rows={(selectedScan.timeline || []).map((e: any) => [
+                new Date(e.timestamp).toLocaleTimeString(), e.action,
+              ])}
+            />
+            {scansData.scans.length > 1 && (
+              <div style={{ marginTop: 16 }}>
+                <h4>Scan history</h4>
+                <Table
+                  columns={['Scan', 'Status', 'Findings', 'Started', '']}
+                  rows={scansData.scans.map((s: any, i: number) => [
+                    `#${scansData.scans.length - i}`, <StatusBadge value={s.analysis_state} />, s.finding_count,
+                    new Date(s.started_at).toLocaleString(),
+                    <button onClick={async () => setSelectedScan(await api.getScan(proj.id, s.scan_id))}>
+                      {s.scan_id === selectedScan.scan_id ? 'Viewing' : 'View'}
+                    </button>,
+                  ])}
+                />
+                {scansData.comparison && (
+                  <p style={{ marginTop: 10, marginBottom: 0 }}>
+                    Vs. previous scan: {scansData.comparison.new_findings.length} new,{' '}
+                    {scansData.comparison.resolved_findings.length} resolved,{' '}
+                    {scansData.comparison.unchanged.length} unchanged.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <ProjectIntel projectId={proj.id} />
+    </div>
+  )
+}
+
 // ---- Projects -----------------------------------------------------------
 export function Projects(_props: { onOpen: (id: string) => void }) {
   const { data, error, loading, reload } = useAsync(() => api.listProjects())
   const [name, setName] = useState('')
   const [repoPath, setRepoPath] = useState('')
   const [creating, setCreating] = useState(false)
-  const [selected, setSelected] = useState<any>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [openProject, setOpenProject] = useState<any>(null)
 
   const create = async () => {
     setCreating(true)
     try {
-      await api.createProject({ name, repo_path: repoPath })
+      const created = await api.createProject({ name, repo_path: repoPath })
       setName('')
       setRepoPath('')
       reload()
+      setOpenProject(created)
     } catch (e: any) {
       alert(e.message)
     } finally {
@@ -146,35 +411,45 @@ export function Projects(_props: { onOpen: (id: string) => void }) {
     }
   }
 
+  if (openProject) {
+    return (
+      <ProjectDetail
+        project={openProject}
+        onBack={() => { setOpenProject(null); reload() }}
+        onDeleted={() => { setOpenProject(null); reload() }}
+      />
+    )
+  }
+
   return (
     <div>
-      <div className="glass" style={{ display: 'flex', gap: 8 }}>
-        <input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} />
-        <input placeholder="repo_path" value={repoPath} onChange={(e) => setRepoPath(e.target.value)} />
-        <button onClick={create} disabled={creating || !name || !repoPath}>Create</button>
-      </div>
       <div className="glass">
+        <h4>Add / analyze an existing project</h4>
+        <p>Enter the local path to a repository already on this machine.
+          AEP auto-detects what it is and runs only the checks that
+          apply - it never modifies the repository.</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input placeholder="local repository path, e.g. C:\path\to\project" value={repoPath}
+                 onChange={(e) => setRepoPath(e.target.value)} style={{ flex: 1 }} />
+          <button onClick={create} disabled={creating || !name || !repoPath}>Create</button>
+        </div>
+        <HelpNote topic="projects" />
+      </div>
+      <div className="glass" style={{ marginBottom: 0 }}>
         {loading && <Loading />}
         {error && <ErrorBox message={error} />}
         {data && (
           <Table
-            columns={['Name', 'Repo Path', 'Posture', '']}
+            columns={['Name', 'Repo Path', 'Analysis', '']}
             rows={data.map((p: any) => [
-              p.name, p.repo_path, <StatusBadge value={p.default_posture} />,
-              <button onClick={async () => { setSelected(await api.getRepository(p.id)); setSelectedId(p.id) }}>View</button>,
+              p.name, p.repo_path,
+              <StatusBadge value={ANALYSIS_STATE_LABEL[p.analysis_state] ?? p.analysis_state} />,
+              <button onClick={() => setOpenProject(p)}>Open</button>,
             ])}
           />
         )}
       </div>
-      {selected && (
-        <div>
-          <div className="glass">
-            <h3 style={{ marginBottom: 10 }}>Repository</h3>
-            <pre style={{ margin: 0 }}>{JSON.stringify(selected, null, 2)}</pre>
-          </div>
-          {selectedId && <ProjectIntel projectId={selectedId} />}
-        </div>
-      )}
     </div>
   )
 }
@@ -377,15 +652,72 @@ export function EvidenceBrowser() {
   )
 }
 
-// ---- AI provider status -----------------------------------------------
+// ---- Local core / AI provider status -----------------------------------
+// AEP's real architecture has exactly one AI integration point - a single
+// configurable OmniRoute gateway (AI_BASE_URL/AI_CREDENTIAL/AI_PROVIDER) -
+// not separate Claude/Gemini/OpenAI adapters, so this screen is honest
+// about that rather than inventing three independent "configured" slots
+// that don't exist in the code.
 export function Providers() {
   const { data, error, loading } = useAsync(() => api.providers())
+  const omni = data?.omniroute
+  const aiBadgeValue = omni?.status === 'healthy' ? 'healthy'
+    : omni?.status === 'unreachable' ? 'blocked'
+    : 'not configured'
+
   return (
-    <div className="glass" style={{ marginBottom: 0 }}>
-      <p>Never renders a credential value - only status/model names.</p>
-      {loading && <Loading />}
-      {error && <ErrorBox message={error} />}
-      {data && <pre style={{ margin: 0 }}>{JSON.stringify(data, null, 2)}</pre>}
+    <div>
+      <div className="glass">
+        <p style={{ marginBottom: 0 }}>
+          AEP works without an AI provider. Local engineering - project
+          detection, security/infrastructure scanning, engineering
+          intelligence, and evidence/memory - never depends on one. AI
+          providers are optional, used only for AI-assisted reasoning and
+          routing. Never renders a credential value - only status/model names.
+        </p>
+      </div>
+
+      <div className="glass" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div>
+          <h4>Local Core</h4>
+          <StatusBadge value="ready" />
+        </div>
+        <div>
+          <h4>AI Provider</h4>
+          {loading && <Loading />}
+          {error && <ErrorBox message={error} />}
+          {data && (
+            <div>
+              <p style={{ marginBottom: 4 }}><StatusBadge value={aiBadgeValue} /></p>
+              <p style={{ marginBottom: 0, color: 'var(--text-dim)' }}>{omni?.detail}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="glass">
+        <h4>Optional AI providers</h4>
+        <p>AEP integrates AI through a single configurable gateway rather
+          than separate per-vendor credentials - set <code>AI_BASE_URL</code>,{' '}
+          <code>AI_CREDENTIAL</code>, and optionally <code>AI_PROVIDER</code>{' '}
+          (a display label, e.g. <code>anthropic</code>/<code>openai</code>/
+          <code>gemini</code>) as environment variables before starting{' '}
+          <code>aep</code> to route to Claude, Gemini, OpenAI, or any
+          OmniRoute-compatible endpoint. This UI provides no credential
+          input field on purpose - configuration happens via environment,
+          never through a form that could store a secret in the browser.</p>
+        <Table
+          columns={['Configured via', 'Status']}
+          rows={[['OmniRoute', <StatusBadge value={aiBadgeValue} />]]}
+        />
+      </div>
+
+      {data && (
+        <div className="glass" style={{ marginBottom: 0 }}>
+          <h4>Registered models</h4>
+          <pre style={{ margin: 0 }}>{JSON.stringify(data.providers, null, 2)}</pre>
+        </div>
+      )}
     </div>
   )
 }

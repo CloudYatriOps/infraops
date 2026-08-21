@@ -154,7 +154,9 @@ Statuses are reported as `OK`/`READY`, `WARN`, `BLOCKED`, `UNAVAILABLE`,
 |---|---|
 | Local source install (`pip install .` from this repo) | **READY** — verified |
 | Built wheel install (`pip install <wheel-file>`) | **READY** — verified |
-| PyPI (`pip install aep-platform`) | **NOT YET PUBLISHED** — package built and verified, not uploaded |
+| PyPI (`pip install aep-platform`) | **PUBLISHED** (`0.1.0`) — a newer build is verified and awaits explicit publish approval before upload; PyPI filenames are immutable, so a fix can only ship under a new version once published |
+| Windows | **READY** — install-verified |
+| macOS / Linux | wheels exist (`pgserver`, the embedded-PostgreSQL dependency, publishes them) but are not install-verified from this environment |
 
 `aep` (bare, unqualified) is a different, unrelated PyPI package
 ("Adversary Emulation Planner" by mnemonic AS) — this project was never
@@ -172,10 +174,9 @@ python -m pip install dist/aep_platform-0.1.1-py3-none-any.whl
 aep
 ```
 
-**Future (not done, not scheduled this release):** publishing the
-verified wheel to a package index (public or private) so `pip install
-aep` works without a local checkout. Nothing is published without an
-explicit decision to do so.
+Nothing is published to PyPI automatically — every release pass builds
+and verifies the artifacts, then stops and waits for an explicit
+publish decision.
 
 ### Platform support
 

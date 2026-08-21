@@ -1,0 +1,21 @@
+-- Migration: 0008_project_archive
+-- Purpose: safe "Delete Project" for the UI's scan-lifecycle work
+--   (Project Analysis Productization). `tasks`/`findings`/`events`/etc. all
+--   REFERENCE projects(id) with no ON DELETE CASCADE (Postgres default:
+--   RESTRICT) - a hard `DELETE FROM projects` would either fail outright
+--   once any scan has ever run for that project, or (if a future change
+--   added CASCADE) silently destroy every task/finding/event/evidence
+--   record for it. Neither is acceptable: the UI's delete confirmation
+--   promises "this does NOT delete files from disk" and scan history must
+--   never be blindly cascade-deleted. `archived_at` makes "Delete Project"
+--   an archive (hidden from the active project list, everything else
+--   fully intact and queryable) instead of a destructive operation.
+-- Affected tables (altered): projects (one new nullable column).
+-- Backward-compatibility notes: purely additive - NULL means "not
+--   archived" (every existing row), so no existing row's meaning changes,
+--   no existing query needs to change, and nothing already applied is
+--   touched.
+-- Rollback: `ALTER TABLE projects DROP COLUMN archived_at;` (a fresh
+--   migration, never a hand rollback of this file).
+
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at timestamptz;

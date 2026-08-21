@@ -24,6 +24,7 @@ from ..deployment.evidence import list_deployment_evidence
 from ..operations.memory import list_incidents
 from ..runtime.status import build_runtime_status_payload
 from ..cli import _build_providers_payload
+from .. import scan_lifecycle
 from . import auth
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -158,8 +159,12 @@ def create_app(db_backend: Optional[str] = None) -> Flask:
     @app.get("/projects")
     def list_projects():
         pool = app.config["AEP_POOL"]
+        store = app.config["AEP_STORE"]
         records = PostgresProjectRepository(pool).list()
-        return jsonify([_project_to_dict(r) for r in records])
+        return jsonify([
+            _project_to_dict(r, scan_lifecycle.latest_scan_run(pool, store, r.id))
+            for r in records
+        ])
 
     @app.post("/projects")
     def create_project():
@@ -188,7 +193,31 @@ def create_app(db_backend: Optional[str] = None) -> Flask:
         record = _get_project_or_none(project_id)
         if record is None:
             return jsonify({"error": "not found"}), 404
-        return jsonify(_project_to_dict(record))
+        pool, store = app.config["AEP_POOL"], app.config["AEP_STORE"]
+        return jsonify(_project_to_dict(record, scan_lifecycle.latest_scan_run(pool, store, project_id)))
+
+    @app.delete("/projects/<project_id>")
+    def delete_project(project_id: str):
+        """Archives, never hard-deletes (migration 0008 / BUG-0026's
+        sibling design decision) - repository files, Git history, and
+        every scan/finding/event record for this project are untouched;
+        the project only disappears from the active `/projects` list."""
+        check = _require_project_scope(project_id)
+        if check is not None:
+            return check
+        record = _get_project_or_none(project_id)
+        if record is None:
+            return jsonify({"error": "not found"}), 404
+        archived = PostgresProjectRepository(app.config["AEP_POOL"]).archive(project_id)
+        if not archived:
+            return jsonify({"error": "already archived"}), 409
+        from ..events import EventLogger
+        EventLogger(app.config["AEP_STORE"]).log(
+            actor=getattr(g, "api_key_label", "unknown"), action="project.archived",
+            project_id=project_id, details={"repo_path": record.repo_path})
+        return jsonify({"id": project_id, "archived": True,
+                        "note": "project registration removed from AEP; repository files and "
+                                "scan history are untouched"})
 
     # ---- repositories (item 2) ------------------------------------------
     # Thin abstraction over a project's existing repo_path (local checkout)
@@ -215,6 +244,71 @@ def create_app(db_backend: Optional[str] = None) -> Flask:
                        "detail": "live GitHub API calls are not made by this endpoint; "
                                  "reported BLOCKED/UNAVAILABLE honestly rather than faked"},
         })
+
+    # ---- scan lifecycle: UI-facing "Scan Now" / history / rerun / report --
+    # Every route below calls `aep.scan_lifecycle`, which itself calls the
+    # SAME read-only, capability-routed `aep.scan.scan_project()` the CLI's
+    # `aep scan` uses - no orchestrator, no approval gate, no second
+    # scanning implementation, and (like the CLI) it never writes to,
+    # installs into, or executes anything in the target repository.
+    def _validated_repo_path(record: ProjectRecord):
+        """Validated here, not at project-creation time: a stored
+        repo_path can go stale (moved/deleted) between when a project was
+        registered and when it's actually scanned, and this is the point
+        where AEP is about to touch the filesystem for real."""
+        path = Path(record.repo_path).resolve()
+        if not path.exists():
+            return None, jsonify({"error": f"path does not exist: {path}"}), 400
+        if not path.is_dir():
+            return None, jsonify({"error": f"path is not a directory: {path}"}), 400
+        return str(path), None, None
+
+    @app.post("/projects/<project_id>/scan")
+    def scan_project_now(project_id: str):
+        check = _require_project_scope(project_id)
+        if check is not None:
+            return check
+        record = _get_project_or_none(project_id)
+        if record is None:
+            return jsonify({"error": "not found"}), 404
+        path, err_body, err_code = _validated_repo_path(record)
+        if path is None:
+            return err_body, err_code
+        result = scan_lifecycle.run_scan(app.config["AEP_POOL"], app.config["AEP_STORE"],
+                                          project_id, path,
+                                          triggered_by=getattr(g, "api_key_label", "ui"))
+        return jsonify(result), (201 if result["status"] == "SUCCEEDED" else 500)
+
+    @app.get("/projects/<project_id>/scans")
+    def list_project_scans(project_id: str):
+        if _get_project_or_none(project_id) is None:
+            return jsonify({"error": "not found"}), 404
+        runs = scan_lifecycle.list_scan_runs(app.config["AEP_POOL"], app.config["AEP_STORE"], project_id)
+        comparison = scan_lifecycle.compare_scan_runs(app.config["AEP_POOL"], app.config["AEP_STORE"], project_id)
+        return jsonify({"scans": runs, "comparison": comparison})
+
+    @app.get("/projects/<project_id>/scans/<scan_id>")
+    def get_project_scan(project_id: str, scan_id: str):
+        if _get_project_or_none(project_id) is None:
+            return jsonify({"error": "not found"}), 404
+        detail = scan_lifecycle.get_scan_run(app.config["AEP_POOL"], app.config["AEP_STORE"],
+                                              project_id, scan_id)
+        if detail is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(detail)
+
+    @app.get("/projects/<project_id>/report")
+    def get_project_report(project_id: str):
+        record = _get_project_or_none(project_id)
+        if record is None:
+            return jsonify({"error": "not found"}), 404
+        latest = scan_lifecycle.latest_scan_run(app.config["AEP_POOL"], app.config["AEP_STORE"], project_id)
+        if latest is None:
+            return jsonify({"error": "NOT_YET_SCANNED", "project": record.name}), 404
+        if request.args.get("format") == "markdown":
+            md = scan_lifecycle.render_markdown_report(record.name, record.repo_path, latest)
+            return app.response_class(md, mimetype="text/markdown")
+        return jsonify(latest)
 
     # ---- agents (item 6, read-only) -------------------------------------
     @app.get("/agents")
@@ -782,7 +876,30 @@ def create_app(db_backend: Optional[str] = None) -> Flask:
     return app
 
 
-def _project_to_dict(record: ProjectRecord) -> dict:
+def _detected_capabilities(repo_path: str) -> list[str]:
+    """Cheap, read-only capability detection (no analyzers run) - lets the
+    UI show "Repository detected: Terraform, CI/CD, Git" immediately on
+    project creation and in the NOT_YET_SCANNED empty state, before any
+    full `aep scan` has ever run (product spec Parts 1/12). Never fails
+    the caller - an unreadable path just detects as nothing."""
+    try:
+        from ..capabilities import detect_project
+        return detect_project(repo_path).sorted_capabilities()
+    except Exception:  # noqa: BLE001 - detection is advisory here, never fatal
+        return []
+
+
+def _project_to_dict(record: ProjectRecord, latest_scan: Optional[dict] = None) -> dict:
     return {"id": record.id, "name": record.name, "repo_path": record.repo_path,
             "policy_path": record.policy_path, "default_posture": record.default_posture,
-            "protected_branches": record.protected_branches, "token_budget": record.token_budget}
+            "protected_branches": record.protected_branches, "token_budget": record.token_budget,
+            "archived_at": record.archived_at.isoformat() if record.archived_at else None,
+            # Part 2/12: a project's ANALYSIS state (has it ever been scanned,
+            # and what happened) is surfaced right on the project row so the
+            # UI never has to guess or show a stale "no open findings" for a
+            # project that was never scanned at all.
+            "analysis_state": (latest_scan or {}).get("analysis_state", "NEVER_SCANNED"),
+            "last_scan_at": (latest_scan or {}).get("completed_at"),
+            "last_scan_finding_count": (latest_scan or {}).get("finding_count"),
+            "detected_capabilities": _detected_capabilities(record.repo_path),
+            }

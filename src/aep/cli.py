@@ -984,7 +984,7 @@ def cmd_start(args: argparse.Namespace) -> None:
     from .db.local_postgres import get_data_dir
     from .db.state_store_postgres import dsn_from_env
 
-    print("AEP starting...")
+    print("AEP starting...", flush=True)
     try:
         dsn_from_env()  # provisions/reuses local Postgres + pgvector + migrations
     except Exception as exc:  # noqa: BLE001 - reported, never swallowed
@@ -993,6 +993,11 @@ def cmd_start(args: argparse.Namespace) -> None:
     print(f"Local database: READY  ({get_data_dir()})")
     print("Migrations:     READY")
 
+    # Local engineering (this database, project detection, security/infra
+    # scanning, evidence/memory) never depends on an AI provider - printed
+    # as its own explicitly-READY line so "AI Provider: NOT_CONFIGURED"
+    # never reads as "the platform is not ready" (it is).
+    print("Local Engineering: READY")
     omniroute = _build_providers_payload(args)["omniroute"]
     print(f"AI Provider:    {'READY' if omniroute['status'] == 'healthy' else 'NOT_CONFIGURED'}"
           f"  ({omniroute['detail']})")
@@ -1477,8 +1482,10 @@ Usage:
   aep security <path>    Security analysis for a repo
   aep infra <path>       Infrastructure analysis for a repo
   aep intelligence       Cross-project engineering intelligence
-  aep demo               Run the reproducible demo
   aep status             Platform-wide progress/deployability
+
+No AI API key, no remote database, and no npm are required for any of
+the above - AI providers are optional (see `aep providers`).
 
 Core:
   start                  one-command local product startup
@@ -1486,7 +1493,6 @@ Core:
   security               security posture for a target repo
   infra                  infrastructure posture for a target repo
   intelligence           cross-project intelligence subcommands
-  demo                   demo run / demo readiness
   status                 platform status
   progress               detailed per-phase/per-capability progress
   providers              AI provider reachability
@@ -1498,9 +1504,13 @@ Advanced (unchanged, full detail via `aep <command> --help`):
   verify-phase, runtime-start, runtime-status, runtime-stop,
   runtime-workers, runtime-jobs, runtime-recover, prioritize
 
+Developer / QA (release validation, not a product feature):
+  demo                   reproducible demo run / demo readiness checklist
+
 Every subcommand from earlier releases still works exactly as before -
-`security`/`infra`/`scan` are additions, not replacements. Run
-`aep <command> --help` for any command's full options.
+`security`/`infra`/`scan` are additions, not replacements, and `demo` is
+unchanged and unremoved. Run `aep <command> --help` for any command's
+full options.
 """
 
 

@@ -1,8 +1,17 @@
-# AEP Demo (Stage C)
+# AEP Demo (Stage C) — developer/QA release validation
 
-A literal, reproducible command sequence for the CEO demo. Every step
-below runs real code against real local PostgreSQL - nothing here is a
-canned transcript.
+**This is not the CEO demonstration.** The actual CEO demo is the real
+product workflow against a real repository: `pip install aep-platform` →
+`aep` → open the UI → Projects → add the real project → **Scan Now** →
+Findings/Report/Timeline (see the top-level `README.md` and
+`docs/QUICKSTART.md`). This document is the internal reproducible
+command sequence (`aep demo readiness`/`aep demo run`) used to validate
+a release before shipping it - a developer/QA tool, not something a
+normal user needs to run, and not exposed as a primary command in
+`aep --help` (see `_TOP_LEVEL_HELP` in `src/aep/cli.py`).
+
+Every step below runs real code against real local PostgreSQL - nothing
+here is a canned transcript.
 
 ## Prerequisites
 

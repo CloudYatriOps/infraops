@@ -188,12 +188,24 @@ def _live_columns(conn, table: str) -> set[str]:
 
 def _declared_columns(table: str) -> set[str]:
     """Best-effort structural parse: find the CREATE TABLE block for
-    `table` and pull out leading identifiers of each column line. This is
-    intentionally simple (not a full SQL parser) - it exists to catch drift
-    such as an out-of-band `ALTER TABLE ... ADD COLUMN`, not to be a
-    general-purpose DDL parser."""
+    `table` and pull out leading identifiers of each column line, UNIONED
+    with every column named in a later `ALTER TABLE <table> ADD COLUMN`
+    across all migration files (real bug found adding migration 0008: a
+    legitimate, migration-driven `ADD COLUMN` was reported as unauthorized
+    drift because this function only ever looked at the original CREATE
+    TABLE text - see BUGFIX.md). This is intentionally simple (not a full
+    SQL parser) - it exists to catch drift such as an out-of-band
+    `ALTER TABLE ... ADD COLUMN`, not to be a general-purpose DDL parser."""
+    cols: set = set()
     for path in _migration_files():
         text = path.read_text()
+        cols |= {
+            m.group(1).lower()
+            for m in re.finditer(
+                rf"ALTER TABLE\s+{table}\s+ADD COLUMN\s+(?:IF NOT EXISTS\s+)?(\w+)",
+                text, re.IGNORECASE,
+            )
+        }
         m = re.search(
             rf"CREATE TABLE\s+(?:IF NOT EXISTS\s+)?{table}\s*\((.*?)\n\);",
             text, re.IGNORECASE | re.DOTALL,
@@ -206,7 +218,6 @@ def _declared_columns(table: str) -> set[str]:
         # the depth-tracking splitter below.
         body = "\n".join(line.split("--", 1)[0] for line in body.split("\n"))
 
-        cols = set()
         depth = 0
         in_string = False
         lines = []
@@ -235,8 +246,7 @@ def _declared_columns(table: str) -> set[str]:
             if first_token.upper() in ("CONSTRAINT", "PRIMARY", "UNIQUE", "FOREIGN", "CHECK"):
                 continue
             cols.add(first_token.lower())
-        return cols
-    return set()
+    return cols
 
 
 @dataclass

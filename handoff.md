@@ -1836,3 +1836,151 @@ demo readiness, and changing it was outside this pass's stated scope. A
 dead, unused `REPO_ROOT` constant left over in `demo.py` from before
 BUG-0014's fix was deleted as a small, zero-risk cleanup found during the
 same audit.
+
+## 0.1.1 version bump; product-polish pass (license, no-API-key UX,
+## Postgres startup UX); Project Analysis Productization (scan lifecycle)
+
+Three sequential passes in one session, summarized together since each
+built directly on the last.
+
+**Version bump to 0.1.1** (`pyproject.toml`, `src/aep/__init__.py`,
+`src/aep/cli.py`): `__version__` now derives from
+`importlib.metadata.version("aep-platform")` (was a second hand-typed
+literal - real drift risk, fixed). `aep --version`/`-V` reads that same
+value. Rebuilt/reverified wheel+sdist, full suite (826 passed), pushed
+to `origin/main` (commits `b129eb2`, `21547d5`) on explicit instruction.
+**Important standing fact:** PyPI already has `aep-platform 0.1.0`
+published out-of-band (uploaded before either the BUG-0024 fix or the
+visual-QA commit) - anyone publishing next needs a version bump past
+whatever was last actually uploaded, not just "the next number in this
+repo."
+
+**Product-polish pass** ("FINAL PRODUCT UX + OPEN-SOURCE + NO-API-KEY"):
+- **License**: audited every dependency (none GPL/AGPL; the two
+  LGPL-licensed optional scanners, semgrep/checkov, are invoked as
+  external subprocess binaries, never imported - no copyleft obligation
+  on AEP's own code). Added `LICENSE` (MIT), `docs/LICENSES.md` (the
+  full table), modern SPDX `license = "MIT"` + `license-files =
+  ["LICENSE"]` in `pyproject.toml` (bumped `setuptools>=77` for PEP 639
+  support - confirmed the wheel now carries a real
+  `dist-info/licenses/LICENSE` file and `License-Expression: MIT`).
+- **No-AI-key clarity**: `aep start` already didn't gate readiness on an
+  AI provider; added an explicit `Local Engineering: READY` line so that
+  fact is never ambiguous next to `AI Provider: NOT_CONFIGURED`.
+  Rewrote the Providers UI screen honestly - AEP has exactly ONE AI
+  integration point (OmniRoute, via `AI_BASE_URL`/`AI_CREDENTIAL`/
+  optional `AI_PROVIDER` label), not separate Claude/Gemini/OpenAI
+  adapters, so the screen says that plainly instead of fabricating three
+  independent "configured" slots that don't exist in the code.
+- **Postgres startup UX** (real user-reported defect): `pgserver`'s own
+  `_logger.error("Timeout starting server...")` was leaking straight to
+  the console via Python logging's handler-of-last-resort during normal,
+  already-handled WAL crash recovery, reading as fatal when it wasn't.
+  Fixed in `src/aep/db/local_postgres.py`: mute `pgserver`'s logger only
+  for the duration of the retry loop, print AEP's own framed progress
+  ("Starting local database...", "Waiting for PostgreSQL readiness...
+  (attempt N/5)", "PostgreSQL READY") with `flush=True` (buffering had
+  silently swallowed these when stdout wasn't a TTY - found live while
+  verifying the fix). Reproduced the real crash-recovery path (force-
+  killed postgres.exe mid-run, restarted) and confirmed the friendly
+  messages replace the raw scary one.
+- **CLI**: `aep demo` moved out of the curated help's primary Usage/Core
+  sections into a `Developer / QA` group - unchanged behavior, only the
+  curated-help text changed (`test_cli_ux.py`'s line-count/unaffected-
+  subcommand-help tests still pin this).
+- **BUG-0025** (self-caught while adding a test): `_check_skill_gate_wired`'s
+  BUG-0024 introspection fix reintroduced a real, pre-existing circular
+  import (`orchestrator -> agents -> agents.ci_diagnose_agent ->
+  github.planner -> orchestrator`) when `aep.orchestrator` is touched
+  cold - every real entry point avoids it by luck of import order
+  (`aep.bootstrap` imports `.agents` before `.orchestrator`), but a
+  standalone unit test doesn't. Fixed with a try-then-warm-via-bootstrap
+  fallback; added a genuinely-cold-subprocess regression test since an
+  in-process test can't reliably catch this class of bug.
+- Full suite re-run after both BUG-0025's fix and a false-positive threat-
+  model-test trip (my own `/scan` endpoint's comment used the word
+  "policy" inside a naive string-slice test's window - reworded, not a
+  real issue): 827 passed, 0 failed.
+- Not done: no PyPI publish (blocked on user approval + the pre-existing
+  0.1.0 version conflict noted above); no push without fresh explicit
+  authorization for this pass's own commits.
+
+**Project Analysis Productization** (UI scan lifecycle + reports +
+history + rerun + delete): closes the real gap the previous pass's UI
+"Analyze" button only partially solved - a scan result that only lived
+in one HTTP response and vanished on refresh. Deliberately reuses
+existing structures rather than inventing new ones (see
+`src/aep/scan_lifecycle.py`'s module docstring for the full reasoning):
+a "scan run" IS a `Task` (`type="project_scan"`, no CHECK constraint to
+fight), its full report is one `Evidence` entry's JSON summary, each
+finding is a real `FindingRecord` linked via the already-nullable
+`findings.task_id`, and the Timeline is real `Event` rows via the
+existing `EventLogger` - the only new schema is migration
+`0008_project_archive.sql` (`projects.archived_at`, additive/nullable),
+for a safe, non-cascading "Delete Project" (`tasks`/`findings`/`events`
+reference `projects.id` with no `ON DELETE CASCADE`, so a hard delete
+would either fail once any scan ever ran, or silently destroy history if
+someone later added CASCADE - archiving avoids both).
+
+**BUG-0026** (found applying that migration): the schema drift detector
+(`db/migrations.py::_declared_columns`) only ever parsed a table's
+original `CREATE TABLE` block - it had never seen a genuine `ALTER TABLE
+... ADD COLUMN` migration before (prior 0002/0004/0005 were all
+DROP-COLUMN cleanups of an intentional test artifact), so it flagged the
+new, legitimate `archived_at` column as unauthorized drift. Fixed by
+also scanning every migration file for `ALTER TABLE <table> ADD COLUMN`
+and unioning those columns into the declared set.
+
+New API surface (`src/aep/api/app.py`, thin - all real logic in
+`scan_lifecycle.py`): `POST /projects/<id>/scan`, `GET
+/projects/<id>/scans`, `GET /projects/<id>/scans/<scan_id>`, `GET
+/projects/<id>/report[?format=markdown]`, `DELETE /projects/<id>`
+(archives). `POST /scan`/the ad-hoc `scanProject` from the previous
+pass were superseded, not kept alongside (no duplicate endpoints).
+`GET /projects`/`GET /projects/<id>` now also return `analysis_state`
+(`NEVER_SCANNED`/`QUEUED`/`SCANNING`/`COMPLETED`/
+`COMPLETED_WITH_FINDINGS`/`FAILED`/`CANCELLED` - derived from the real
+`Task.status` + finding count, deliberately never conflated with
+security posture) and `detected_capabilities` (cheap `detect_project()`
+call, so even a NEVER_SCANNED project shows what AEP found on disk).
+
+UI (`ui/src/pages.tsx`): `Projects` now shows Analysis state per row;
+opening one renders the full `ProjectDetail` - Scan Now/Rerun/Delete
+(with an inline, non-destructive confirmation), Analysis summary,
+Security posture cards, a Findings table with a per-finding detail
+panel, a Report section with client-side JSON/Markdown blob downloads,
+a real Timeline, and Scan history with a same-page rerun comparison
+(new/resolved/unchanged). In-product `<details>` help sits next to
+Projects/Scan/Findings/Report - concise, never the full architecture
+doc. A genuine UI-build mistake was caught and fixed twice this session:
+forgetting `VITE_API_BASE=` when rebuilding bakes in the dev-server
+fallback URL (`localhost:5000`) instead of same-origin, breaking every
+fetch with `ERR_CONNECTION_REFUSED` - always rebuild with
+`VITE_API_BASE= npx vite build --outDir ../src/aep/ui_dist --emptyOutDir`.
+
+**Verification**: full 25-step scenario driven against the real
+`aep start` server and the real `winfotest-infra` repo via the browser
+tool (screenshots still unavailable in this environment - substituted
+DOM/console/network inspection, consistent with every prior session) -
+create → NEVER_SCANNED with detected capabilities shown → Scan Now →
+COMPLETED_WITH_FINDINGS with the exact same IaC finding the CLI produces
+→ finding detail panel → both report downloads (real blob, correct
+filename) → Rerun (new scan, old preserved, comparison shows 0
+new/0 resolved/1 unchanged) → view the OLD scan's own timeline (still
+intact) → Delete (confirmation text matches spec) → confirmed via a
+real `git status`/filesystem check that the repository and its Git
+history were completely untouched → re-added and scanned again. Zero
+console errors and zero failed requests throughout. CLI regression
+(`aep scan` against the same repo) reconfirmed byte-for-byte the same
+Detected/Security/Finding shape as before this pass.
+
+**Not done, deliberately:** no new intelligence engine, no Phase 11, no
+architecture redesign - `scan_lifecycle.py` is additive glue over
+existing `Task`/`Finding`/`Event`/`scan_project()`, not a second engine.
+Findings are recorded fresh per scan run rather than upserted/deduped
+across reruns (an intentional choice: never silently overwriting scan
+history matters more here than avoiding row growth in a local-first,
+single-user product) - the standalone `/findings` nav tab will now show
+one row per (scan run × finding) rather than a deduplicated "current"
+view; noted here rather than silently changed. No PyPI publish, no push
+without fresh explicit authorization for this pass's commits.
