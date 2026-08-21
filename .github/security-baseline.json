@@ -16,7 +16,7 @@
     {
       "file": "BUGFIX.md",
       "rule": "generic_api_key_assignment",
-      "line": 330,
+      "line": 411,
       "description": "Potential committed secret (generic_api_key_assignment) detected in BUGFIX.md"
     },
     {
@@ -148,7 +148,7 @@
     {
       "file": "tests/test_end_to_end_demo.py",
       "rule": "aws_access_key_id",
-      "line": 89,
+      "line": 92,
       "description": "Potential committed secret (aws_access_key_id) detected in tests/test_end_to_end_demo.py"
     },
     {

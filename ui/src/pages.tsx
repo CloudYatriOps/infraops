@@ -146,6 +146,11 @@ const FAQ: Record<string, { q: string; a: string }[]> = {
   report: [
     { q: 'What does RERUN do?', a: 'Creates a new scan record and compares it against the previous one, so you can see what\u2019s new, unchanged, or resolved.' },
   ],
+  trust: [
+    { q: 'What is Trust Level?', a: 'L0 = a suggestion only. L1 = a verified recommendation from real evidence, no changes made. L2 = a mutation AEP would only automate once every deterministic safety criterion is met - AEP never reaches L2 on AI narrative alone.' },
+    { q: 'What does Verification mean?', a: 'VERIFIED means every required independent check ran and passed. PARTIALLY_VERIFIED means some ran but at least one required check is still missing. UNVERIFIED means no independent check has run yet - even if a scanner reported high confidence.' },
+    { q: 'Why is "NOT verified" shown even when nothing looks wrong?', a: 'AEP never omits a check it did not run. If a dimension is missing, it is named here explicitly, every time - never silently assumed to be fine.' },
+  ],
 }
 
 function HelpNote({ topic }: { topic: keyof typeof FAQ }) {
@@ -190,13 +195,16 @@ function ProjectDetail({ project, onBack, onDeleted }: { project: any; onBack: (
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [trust, setTrust] = useState<any>(null)
 
   const reloadAll = async (selectId?: string) => {
     const [freshProj, scans] = await Promise.all([api.getProject(proj.id), api.listScans(proj.id)])
     setProj(freshProj)
     setScansData(scans)
     const targetId = selectId ?? scans.scans[0]?.scan_id
-    setSelectedScan(targetId ? await api.getScan(proj.id, targetId) : null)
+    const scan = targetId ? await api.getScan(proj.id, targetId) : null
+    setSelectedScan(scan)
+    setTrust(targetId ? await api.getTaskTrust(targetId).catch(() => null) : null)
   }
 
   useEffect(() => { reloadAll() }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -310,6 +318,36 @@ function ProjectDetail({ project, onBack, onDeleted }: { project: any; onBack: (
             <HelpNote topic="findings" />
           </div>
 
+          {/* TRUST - Part 7: why should I allow AEP to do this? Never a
+              numeric confidence headline - see src/aep/trust.py Part 5. */}
+          {trust && (
+            <div className="glass">
+              <h4>Trust</h4>
+              <p>
+                <strong style={{ color: 'var(--text)' }}>Trust Level:</strong> <StatusBadge value={trust.trust_level} />{' '}
+                <strong style={{ color: 'var(--text)', marginLeft: 12 }}>Verification:</strong>{' '}
+                <StatusBadge value={trust.verification_status} />
+              </p>
+              <p style={{ marginBottom: 4 }}>
+                <strong style={{ color: 'var(--text)' }}>Verified:</strong>{' '}
+                {trust.verified.length ? trust.verified.join(', ') : '(nothing independently verified yet)'}
+              </p>
+              <p style={{ marginBottom: 4 }}>
+                <strong style={{ color: 'var(--text)' }}>NOT verified:</strong>{' '}
+                {trust.not_verified.length ? trust.not_verified.join(', ') : '(nothing outstanding)'}
+              </p>
+              <p style={{ marginBottom: 4 }}>
+                <strong style={{ color: 'var(--text)' }}>Policy:</strong> {trust.policy?.matched_rule ?? '(no policy action recorded for this task)'}
+              </p>
+              <p style={{ marginBottom: 0 }}>
+                <strong style={{ color: 'var(--text)' }}>Rollback:</strong>{' '}
+                {trust.rollback.available === null ? 'not applicable (read-only scan)'
+                  : trust.rollback.available ? 'available' : 'unavailable'}
+              </p>
+              <HelpNote topic="trust" />
+            </div>
+          )}
+
           {/* FINDINGS */}
           <div className="glass">
             <h4>Findings ({report.total_findings})</h4>
@@ -365,7 +403,7 @@ function ProjectDetail({ project, onBack, onDeleted }: { project: any; onBack: (
                   rows={scansData.scans.map((s: any, i: number) => [
                     `#${scansData.scans.length - i}`, <StatusBadge value={s.analysis_state} />, s.finding_count,
                     new Date(s.started_at).toLocaleString(),
-                    <button onClick={async () => setSelectedScan(await api.getScan(proj.id, s.scan_id))}>
+                    <button onClick={() => reloadAll(s.scan_id)}>
                       {s.scan_id === selectedScan.scan_id ? 'Viewing' : 'View'}
                     </button>,
                   ])}

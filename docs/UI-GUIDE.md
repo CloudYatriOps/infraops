@@ -65,6 +65,16 @@ this).
 - **Security posture** — one row per analyzer (`PASS`/`FAIL`/`SKIPPED`/
   `UNAVAILABLE`/`BLOCKED`) with its real reason string, never a made-up
   percentage.
+- **Trust** — the Trust Contract read-model for the current scan
+  (`GET /tasks/<scan_id>/trust`, `src/aep/trust.py` - Trust-First
+  Architecture Review P0). Shows **Trust Level** (`L0`/`L1`/`L2` -
+  `L3`-`L5` are not implemented yet) and **Verification**
+  (`VERIFIED`/`PARTIALLY_VERIFIED`/`UNVERIFIED`/`CONTRADICTED` - never a
+  numeric confidence headline), plus what was actually verified, what
+  was **NOT** verified (always listed explicitly, never a silent
+  omission), the matched policy rule, and rollback availability. A
+  read-only scan is always at most `L1`: AEP never claims `L2`
+  ("verified remediation") for an action that mutated nothing.
 - **Findings** — a real table with a "Details" button per finding
   (exact file/line, rule, explanation, and a reminder that remediation is
   a separate action AEP never applies automatically).

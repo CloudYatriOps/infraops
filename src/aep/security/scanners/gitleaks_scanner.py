@@ -106,14 +106,27 @@ def scan(project_root: str, run_shell) -> SecurityScanRecord:
     # in-process, only the scanner *subprocess itself* is capability-gated.
     report_path = os.path.join(project_root, "aep_gitleaks_report.json")
     raw_findings = []
+    report_parse_error = False
     if os.path.exists(report_path):
         try:
             with open(report_path) as f:
                 raw_findings = json.load(f) or []
         except json.JSONDecodeError:
-            raw_findings = []
+            # BUG: previously swallowed to `raw_findings = []`, which reads
+            # identically to a real clean scan even though gitleaks' own
+            # exit code (checked below) may say leaks WERE found - see
+            # BUGFIX.md. Trust P0.3: never let malformed output become PASS.
+            report_parse_error = True
         finally:
             os.remove(report_path)
+
+    if report_parse_error:
+        return SecurityScanRecord(
+            scanner=SCANNER_ID, scanner_version=tool_version, category=CATEGORY,
+            scanned_at=scanned_at, target=project_root, availability=ScannerAvailability.AVAILABLE,
+            exit_code=result.get("exit_code", -1), finding_count=0, findings=[], parse_error=True,
+            note="gitleaks report file was not valid JSON - result unknown",
+        )
 
     if result.get("exit_code") not in (0, 1):
         return SecurityScanRecord(

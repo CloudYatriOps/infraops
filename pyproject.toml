@@ -146,3 +146,10 @@ aep = ["ui_dist/**/*", "migrations_sql/*.sql", "demo_template/**/*", "demo_templ
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Without this, several test files' `from tests.db_pg_helper import ...`
+# (tests/ has no __init__.py) only resolve when pytest's own rootdir
+# insertion happens to put the repo root on sys.path - which it does not
+# always do on Windows even under `python -m pytest`. Native pytest
+# feature, not a code change - a no-op on environments (e.g. this
+# project's CI) where the repo root was already on sys.path some other way.
+pythonpath = ["."]

@@ -1984,3 +1984,70 @@ single-user product) - the standalone `/findings` nav tab will now show
 one row per (scan run × finding) rather than a deduplicated "current"
 view; noted here rather than silently changed. No PyPI publish, no push
 without fresh explicit authorization for this pass's commits.
+
+## Trust-First Foundation (P0)
+
+Implements only the P0 slice of the approved Trust-First Architecture
+Review: a Trust Contract read-model, the four-state verification status,
+a structural scanner-failure-never-PASS invariant, and default-on skill
+gating for L2+ mutations. Deliberately NOT done: full Trust Dashboard,
+reliability metrics, trust degradation automation, event hash-chaining,
+AI-stack consolidation, L3-L5 - see the review's P0/P1/P2/P3 priority
+list for what comes next.
+
+- **Trust Contract** (`src/aep/trust.py`, new module): a pure projection
+  over `Task`/`Evidence`/`Event` - no new table, no second source of
+  truth. `build_trust_contract(task, events)` answers the review's 18
+  questions; `not_verified` is always an explicit list, never a silent
+  omission. Exposed at `GET /tasks/<id>/trust`.
+- **Verification status**: `VERIFIED`/`PARTIALLY_VERIFIED`/`UNVERIFIED`/
+  `CONTRADICTED` - a 4-state field, never a numeric confidence headline.
+  An empty `verified` list is always `UNVERIFIED`, regardless of any
+  confidence number already present on a finding.
+- **Trust levels L0-L2** (`compute_trust_level`): deterministic, never
+  computed from AI-authored narrative text. `L2` ("verified
+  remediation") requires every criterion (task succeeded, verification
+  status `VERIFIED`, policy did not deny, required skill resolved) -
+  missing any one caps the level at `L1`/`L0`.
+- **BUG-0027** (found implementing the scanner invariant, see BUGFIX.md):
+  four real scanners (`gitleaks`/`semgrep`/`checkov`/`checkov_k8s`) could
+  read malformed/unparseable tool output as a clean `PASS` because
+  `scan.py::_from_record` never checked for a parse failure, only
+  `finding_count`. `pip_audit_scanner.py` had the identical shape feeding
+  `_dependency_result` directly. Fixed at the shared choke point
+  (`SecurityScanRecord.parse_error`, checked first in `_from_record`) and
+  in each scanner's malformed-output branch.
+- **Skill gate default-on** (`bootstrap.py::build_orchestrator`): was
+  strictly opt-in (`skill_registry=None` unless a caller passed one),
+  meaning L2+ mutating task types could run without their required skill
+  ever resolving. Now defaults to a real, in-memory `SkillRegistry`
+  seeded via the existing `seed_canonical_skills()` (same path the CLI/
+  API already use) - every `TASK_SKILL_RULES`-covered task type resolves
+  out of the box (verified: all 18 required skill ids are covered by
+  `CANONICAL_SKILLS`), and a genuinely missing/unpublished skill now
+  actually blocks, rather than the gate being silently off everywhere.
+  `skill_gate_enabled=False` is the explicit opt-out for a caller that
+  deliberately wants pre-P0 behavior.
+- **UI** (`ui/src/pages.tsx`): a small **Trust** section on the existing
+  Project Detail scan view - Trust Level, Verification, what was
+  verified/NOT verified, policy, rollback. Not the full Trust Dashboard
+  from the review (Screens 1-5) - that's P1/P2.
+- **Verification**: `aep scan` against
+  `C:\Users\KaranParmar\Github\WINFOTEST\winfotest-infra` reproduced the
+  exact expected Detected/Security/Finding output before and after this
+  pass (the fix is inert on this repo - no gitleaks/semgrep/checkov
+  scanner runs against it). The same result was confirmed live in the
+  browser: created the project, ran Scan Now, and the Trust section
+  rendered `L1`/`PARTIALLY_VERIFIED`/`verified: scanner_execution`/
+  `not_verified: independent_rescan, tests_executed, policy_evaluated,
+  skill_requirements` - matching a direct Python-level check of the same
+  contract exactly. No console errors, no secret-shaped values anywhere
+  in the rendered page.
+- **Not done, deliberately**: `npm_audit_scanner.py` has the identical
+  malformed-JSON-swallow pattern as the fixed `pip_audit_scanner.py` but
+  is not wired into `scan.py`'s posture computation today - left
+  unchanged and flagged in BUG-0027 rather than silently fixed, since
+  fixing it wouldn't change any currently-reachable behavior. Deployment/
+  database-migration task types are excluded from `MUTATING_TASK_TYPES`
+  (L2 scope) on purpose - their trust model is Level 4 territory per the
+  review, out of scope here.

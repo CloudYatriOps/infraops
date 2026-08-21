@@ -140,7 +140,8 @@ def build_orchestrator(db_path: str, project: ProjectConfig,
                         deployment_state_dir: Optional[str] = None,
                         db_backend: Optional[str] = None,
                         skill_registry: Optional[SkillRegistry] = None,
-                        skill_registry_backend: Optional[str] = None) -> Orchestrator:
+                        skill_registry_backend: Optional[str] = None,
+                        skill_gate_enabled: bool = True) -> Orchestrator:
     """`db_backend` selects the durable store implementation via the single
     canonical resolution in `db/factory.py::build_state_store`:
       * `db_backend="postgres"` (or the default, when neither this
@@ -169,15 +170,32 @@ def build_orchestrator(db_path: str, project: ProjectConfig,
     kwargs = {}
     if sleep_fn is not None:
         kwargs["sleep_fn"] = sleep_fn
-    # Stage C: skill-gate enforcement is strictly opt-in here - passing
-    # neither `skill_registry` nor `skill_registry_backend` keeps
-    # `Orchestrator.skill_registry` None, which is a guaranteed no-op gate
-    # (see `_apply_skill_gate`), preserving every pre-Stage-C caller's
-    # behavior exactly. Callers that want enforcement pass one explicitly.
+    # Trust P0.4: the skill gate is now default-ON. `_apply_skill_gate`
+    # (orchestrator.py) is a strict no-op whenever `skill_registry` is
+    # None - Stage C originally left it None unless a caller explicitly
+    # opted in, which meant L2+ mutating task types (code_fix,
+    # dependency_remediate, ...) could run without their required skill
+    # ever being resolved. Fixed here, at the single construction
+    # chokepoint, not in the gate itself: build a real, in-memory
+    # `SkillRegistry` seeded with the platform's own canonical skill set
+    # (`seed_canonical_skills` - the same real registry/publish path the
+    # CLI and API already use, never a bypass) so every task type already
+    # covered by `TASK_SKILL_RULES` resolves successfully out of the box,
+    # and enforcement is real for the ONE thing that actually can't
+    # resolve: a genuinely missing/unpublished skill.
+    # `skill_gate_enabled=False` is the explicit, deliberate opt-out for a
+    # caller that truly wants pre-Stage-C behavior (e.g. a unit test
+    # exercising an unrelated orchestrator concern) - it is never the
+    # default.
     if skill_registry is not None:
         kwargs["skill_registry"] = skill_registry
     elif skill_registry_backend is not None:
         kwargs["skill_registry"] = build_skill_registry(backend=skill_registry_backend)
+    elif skill_gate_enabled:
+        from .skills.definitions import seed_canonical_skills
+        default_registry = build_skill_registry(backend="fake")
+        seed_canonical_skills(default_registry)
+        kwargs["skill_registry"] = default_registry
     return Orchestrator(
         store=store, tool_registry=tool_registry, router=router,
         agents=agents, policies={project.id: policy}, projects={project.id: project},
