@@ -63,12 +63,25 @@ PostgreSQL 16.2 + pgvector binaries and AEP manages that local instance
 itself; the React UI ships pre-built inside the package and is served by
 AEP's own backend.
 
-> **Distribution status: NOT on PyPI.** `pip install aep-platform` does
-> not work today and never has — that name has never been published
-> anywhere. The package's real name (see `pyproject.toml`) is `aep`. The
-> current release is installed from this repository or from a built
-> wheel artifact; see "Current distribution status" below for exactly
-> what that means and what doesn't exist yet.
+**Three names, one product, on purpose:** the PyPI distribution is
+`aep-platform` (`aep` was already registered on PyPI by an unrelated
+project), the Python import package is `aep` (`import aep`), and the CLI
+command is `aep`. `pip install aep-platform` gives you the `aep` command.
+
+> **Distribution status: NOT YET PUBLISHED to PyPI.** `pip install
+> aep-platform` does not work today - the package is built and verified
+> but has not been uploaded. See "Current distribution status" below for
+> exactly what's ready and what's blocked, and the local-install fallback
+> below in the meantime.
+
+```bash
+pip install aep-platform
+aep
+```
+
+**Until PyPI publication happens**, install the same package from a local
+clone or a built wheel instead - identical result, just not fetched from
+a public index yet:
 
 ```bash
 git clone <this-repo-url> aep && cd aep
@@ -141,7 +154,12 @@ Statuses are reported as `OK`/`READY`, `WARN`, `BLOCKED`, `UNAVAILABLE`,
 |---|---|
 | Local source install (`pip install .` from this repo) | **READY** — verified |
 | Built wheel install (`pip install <wheel-file>`) | **READY** — verified |
-| PyPI (`pip install aep`, `pip install aep-platform`, or any other name) | **NOT PUBLISHED** — nothing has ever been uploaded |
+| PyPI (`pip install aep-platform`) | **NOT YET PUBLISHED** — package built and verified, not uploaded |
+
+`aep` (bare, unqualified) is a different, unrelated PyPI package
+("Adversary Emulation Planner" by mnemonic AS) — this project was never
+published under that name and never will be; `aep-platform` is the only
+correct distribution name to publish or install this project as.
 
 To install from a wheel instead of the source checkout, build it once
 (from a clone) and install the resulting file — there is no public URL
@@ -150,7 +168,7 @@ to fetch it from:
 ```bash
 python -m pip install build
 python -m build --wheel
-python -m pip install dist/aep-0.1.0-py3-none-any.whl
+python -m pip install dist/aep_platform-0.1.0-py3-none-any.whl
 aep
 ```
 
@@ -181,7 +199,7 @@ reports only what was actually executed.
 PostgreSQL data and logs live under `<AEP data dir>/postgres/`.
 `AEP_DATA_DIR` overrides the location.
 
-`pip uninstall aep` does **not** delete this directory.
+`pip uninstall aep-platform` does **not** delete this directory.
 Reinstalling or upgrading reconnects to the same database with all
 history intact (both verified live — see `handoff.md`). To discard your
 data, delete the directory yourself; AEP never does it for you.

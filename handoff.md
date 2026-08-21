@@ -1463,3 +1463,82 @@ provider NOT_CONFIGURED; live GitHub API reachable here but never
 exercised against a real repo; no Kubernetes cluster (kubectl present,
 correctly reported BLOCKED); no cloud credentials; container/Go scanning
 and Helm/Terraform CLI still need their respective binaries/egress.
+
+## PyPI distribution naming finalized: `aep-platform` (this session)
+
+Attempted to prepare the real PyPI publication per instruction. Found a
+hard blocker before any build work mattered: **the PyPI name `aep` is
+already registered** by an unrelated project ("Adversary Emulation
+Planner", mnemonic AS, currently at their own version 0.1.5) - confirmed
+via a live `GET https://pypi.org/pypi/aep/json` returning 200. This was
+never fixable by any local change; publishing under `aep` was never
+possible.
+
+**Decision (made by the user, implemented this session):** three
+deliberately different names:
+- PyPI distribution: `aep-platform` (confirmed available)
+- Python import package: `aep` (unchanged, `src/aep/`)
+- CLI command: `aep` (unchanged)
+
+`pyproject.toml [project].name` changed from `"aep"` to `"aep-platform"`.
+Everything that must reference the distribution name rather than the
+import name was updated to match: `[project.scripts]` (`aep =
+"aep.cli:main"`, unaffected - console scripts key off the import path,
+not the distribution name), the `all` extra's self-reference (`aep[...]`
+-> `aep-platform[...]` - a self-referential extra resolves against the
+name in `[project]`/on PyPI, not what `import` uses), and every doc that
+told a user to `pip install`.
+
+Added real PyPI metadata that didn't exist before: `readme`,
+`classifiers`, `[project.urls]` (Repository/Documentation/Bug Tracker).
+No `license` field added - deliberately not fabricating a legal choice
+that's the user's/org's to make, not mine.
+
+**Verified live, this session, from the renamed package:**
+- `python -m build` + `python -m twine check dist/*` - **PASSED** for
+  both `aep_platform-0.1.0-py3-none-any.whl` and `aep_platform-0.1.0.tar.gz`.
+- Fresh venv, `pip install <wheel>[api]` - `import aep` works, `aep.exe`
+  console script present, `aep --help`/`aep demo run`/`aep demo run
+  --scenario ambiguous` all pass with zero `AEP_PG_*`/`AEP_POSTGRES_DSN`
+  set.
+- `aep start` from the wheel - full one-command boot (local Postgres,
+  migrations, packaged UI, API), verified over real HTTP: `/health`,
+  `/projects`, `/providers` all 200; JS/CSS/SVG assets serve with correct
+  MIME types.
+- **Restart persistence, repeated on the renamed package**: created a
+  project via the API, hard-killed `aep.exe` + all `postgres.exe`
+  processes, restarted - reproduced the exact BUG-0020 symptom
+  (`Timeout starting server` in the log) and the fix absorbed it; project
+  intact.
+- **Upgrade persistence, repeated**: built `0.1.1`, `pip install
+  --upgrade` over the installed `0.1.0`, restarted - data intact. Version
+  reverted to `0.1.0` afterward (this bump was verification-only, not a
+  real release).
+- Sdist install (`pip install aep_platform-0.1.0.tar.gz`) into a separate
+  fresh venv - `aep --help` works.
+- Secret scan on both artifacts (wheel contents extracted and grepped,
+  sdist file listing checked) - clean, no `.env`/node_modules/dev paths/
+  credential values.
+- Browser/Playwright: **UNAVAILABLE this pass** - the Claude in Chrome
+  extension was not connected/reachable when attempted this session (a
+  different browser tool than the sandboxed one used in the prior
+  session, which is no longer present in this session's tool set). Did
+  the strongest available substitute: direct HTTP verification of every
+  route/asset the UI loads, listed above.
+
+**PyPI publication: BLOCKED, independent of the naming fix.** No PyPI
+credentials exist anywhere on this machine - no `~/.pypirc`, no
+`PYPI_*`/`TWINE_*` env vars, `twine` had to be installed fresh. This was
+already true before this session; the naming fix doesn't change it.
+`PACKAGE_READY_FOR_PYPI = YES` (twine check passed, clean install
+verified both ways, product works end to end), `PYPI_PUBLICATION =
+BLOCKED` (credentials). No fabricated publication.
+
+**Full regression suite**: re-run once on the renamed package. See this
+session's final report for the exact count - collection succeeded
+cleanly on the same proven Python 3.12 venv used in prior sessions;
+running it directly on the reporting user's own interpreter (`C:\py`)
+hit a pre-existing, unrelated pytest-invocation quirk (`ModuleNotFoundError:
+No module named 'tests'` - a `sys.path`/rootdir difference on that
+specific interpreter, not caused by the rename) and was not chased
+further since the proven venv already gives a clean, reproducible signal.

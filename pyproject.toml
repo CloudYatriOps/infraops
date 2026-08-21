@@ -1,8 +1,31 @@
 [project]
-name = "aep"
+# PyPI distribution name. Intentionally different from the Python import
+# package (`aep`, under src/aep/) and the CLI (`aep`) - "aep" was already
+# registered on PyPI by an unrelated project (Adversary Emulation Planner,
+# mnemonic AS) when this was checked, so the distribution/publication name
+# is "aep-platform" while `import aep` and the `aep` console command are
+# unaffected (see [project.scripts] below and the `all` extra's
+# self-reference, both of which must use THIS name, not the import name).
+name = "aep-platform"
 version = "0.1.0"
-description = "Autonomous Engineering & DevSecOps Platform (Phase 1 core)"
+description = "AEP: a local-first autonomous engineering and DevSecOps platform - policy-gated task orchestration, a versioned skill registry, and real security/dependency/infrastructure intelligence, backed by a zero-config embedded PostgreSQL. No PostgreSQL install, no Supabase, no remote database, no npm - `pip install aep-platform` then `aep`."
+readme = "README.md"
 requires-python = ">=3.10,<3.13"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Security",
+]
 dependencies = [
     "pyyaml>=6.0",
     "packaging>=21.0",
@@ -59,8 +82,16 @@ sbom = ["cyclonedx-python-lib>=7.0"]
 # src/aep/github/client.py - real GitHub API HTTP client.
 github = ["requests>=2.31"]
 # Union of every real optional integration (excludes `dev`, which is
-# test-tooling only, not a runtime capability).
-all = ["aep[anthropic,dependency-scanning,api,infra,sbom,github]"]
+# test-tooling only, not a runtime capability). Self-reference must use
+# the DISTRIBUTION name (aep-platform), not the import package (aep) -
+# pip resolves extras-of-self by the name on PyPI/in this file's [project]
+# table, not by what `import` uses.
+all = ["aep-platform[anthropic,dependency-scanning,api,infra,sbom,github]"]
+
+[project.urls]
+Repository = "https://github.com/CloudYatriOps/infraops"
+Documentation = "https://github.com/CloudYatriOps/infraops/blob/main/README.md"
+"Bug Tracker" = "https://github.com/CloudYatriOps/infraops/blob/main/BUGFIX.md"
 
 [project.scripts]
 aep = "aep.cli:main"

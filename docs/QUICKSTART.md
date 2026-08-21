@@ -4,10 +4,14 @@ This is the real, verified sequence to run AEP end to end. If a step here
 disagrees with the top-level `README.md` Quick Start, `README.md` is the
 summary and this file is the same flow with more detail.
 
-**Distribution status: NOT on PyPI.** `pip install aep-platform` / `pip
-install aep` do not download anything — nothing has ever been published.
-The project's real name (`pyproject.toml`) is `aep`. Today, install from
-this repository or from a built wheel artifact.
+**Three names, one product:** PyPI distribution `aep-platform`, Python
+import package `aep`, CLI command `aep`. `aep` alone on PyPI is an
+unrelated project and was never an option for this one.
+
+**Distribution status: NOT YET PUBLISHED to PyPI.** `pip install
+aep-platform` does not work today — the package is built and verified but
+not uploaded (see "Current distribution status" in `README.md`). Until it
+is, install from this repository or a built wheel artifact, below.
 
 ## 1. Clone
 
@@ -90,7 +94,7 @@ See `docs/DEMO-CARD.md` for a one-page cheat sheet and
 ```bash
 python -m pip install build
 python -m build --wheel
-python -m pip install dist/aep-0.1.0-py3-none-any.whl
+python -m pip install dist/aep_platform-0.1.0-py3-none-any.whl
 aep
 ```
 
