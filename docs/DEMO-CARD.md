@@ -40,7 +40,7 @@ cd ui && npm ci && npm run dev
   never a WARN.
 - **Provider** — `aep providers` shows the AI Gateway routing to
   `FakeAIProvider` honestly (OmniRoute UNAVAILABLE — no `AI_BASE_URL` set).
-- **Execution** — the real fix applied to `demo_project_template/`'s copy.
+- **Execution** — the real fix applied to `src/aep/demo_template/`'s copy.
 - **Verification** — a real second security scan and a real `pytest` run,
   never assumed.
 - **Evidence** — persisted to real PostgreSQL, viewable via the UI's

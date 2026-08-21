@@ -33,12 +33,12 @@ def test_known_tool_capabilities_include_github_capabilities_when_github_enabled
 
 def test_recon_and_test_run_are_real_policy_actions_not_tool_registry_capabilities():
     """`recon.inspect`/`test.run` are real POLICY action names
-    (config/policy.yaml's allow bucket), not ToolRegistry capability
+    (src/aep/config/policy.yaml's allow bucket), not ToolRegistry capability
     strings - deliberately NOT in `REAL_TOOL_CAPABILITIES` (that set is
     tool-capability strings only). Confirmed here so the distinction is
     honest and tested, not just asserted in a docstring."""
     from aep.skills.known_capabilities import real_policy_actions
-    actions = real_policy_actions("config/policy.yaml")
+    actions = real_policy_actions("src/aep/config/policy.yaml")
     assert "recon.inspect" in actions
     assert "test.run" in actions
     from aep.skills.known_capabilities import REAL_TOOL_CAPABILITIES

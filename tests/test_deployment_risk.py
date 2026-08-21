@@ -35,7 +35,7 @@ def _finding(id_, project_id, category, severity, days_old, description=None, st
 def project_repo():
     repo = FakeProjectRepository()
     for pid in ("proj-recur", "proj-stable-dep", "proj-none"):
-        repo.save(ProjectRecord(id=pid, name=pid, repo_path="/tmp/x", policy_path="config/policy.yaml"))
+        repo.save(ProjectRecord(id=pid, name=pid, repo_path="/tmp/x", policy_path="src/aep/config/policy.yaml"))
     return repo
 
 
@@ -43,8 +43,16 @@ def project_repo():
 def finding_repo():
     repo = FakeFindingRepository()
     # proj-recur: same dependency-category fingerprint recurs 3x -> INCREASING/IMMEDIATE.
+    # days_old MUST differ per occurrence: `recurrence_interval_days` is
+    # computed from DISTINCT timestamps, and IMMEDIATE requires a
+    # computable interval <= 14 days. With an identical days_old for all
+    # three, the three `datetime.now()` calls collapse to one distinct
+    # timestamp on any platform whose clock resolution is coarser than
+    # this loop is fast (Windows: ~15ms), silently yielding
+    # interval=None -> NEAR_TERM. Spacing them makes the intent ("recurs
+    # three times over a few days") explicit instead of clock-dependent.
     for i in range(3):
-        repo.save(_finding(f"dep-r{i}", "proj-recur", "dependency", "high", days_old=1,
+        repo.save(_finding(f"dep-r{i}", "proj-recur", "dependency", "high", days_old=i + 1,
                             description="vulnerable package libfoo"))
     # proj-stable-dep: recurs exactly twice -> ELEVATED/STABLE (below IMMEDIATE threshold).
     for i in range(2):

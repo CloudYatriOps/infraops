@@ -66,7 +66,7 @@ WEIGHT_BLAST_RADIUS = 0.10      # simple heuristic: count of other OPEN
                                  # findings on the same project/resource
 WEIGHT_SLA = 0.0                 # NO-OP. `FindingRecord`/`ProjectRecord` have
                                  # no SLA/due-date concept anywhere in the
-                                 # schema (checked supabase/migrations/*.sql
+                                 # schema (checked src/aep/migrations_sql/*.sql
                                  # and db/models.py) - rather than invent a
                                  # fake SLA field to get a nonzero weight,
                                  # this factor is included explicitly, at

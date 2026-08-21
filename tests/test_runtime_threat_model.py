@@ -60,7 +60,7 @@ def test_no_destructive_shell_argv_in_runtime_package():
 def test_runtime_scheduled_scan_action_is_never_deny_by_construction_but_destructive_action_is():
     """The two ALLOW-listed runtime.* actions are read-only discovery; the
     one runtime destructive action is DENY - never both permissive."""
-    policy = PolicyEngine.from_yaml("config/policy.yaml")
+    policy = PolicyEngine.from_yaml("src/aep/config/policy.yaml")
     scan = policy.evaluate("runtime.scheduled_scan")
     destructive = policy.evaluate("runtime.autonomous_destructive_action")
     assert scan.decision == PolicyDecisionType.ALLOW
@@ -70,25 +70,25 @@ def test_runtime_scheduled_scan_action_is_never_deny_by_construction_but_destruc
 # ---- Executable autonomous-safety proofs -------------------------------
 
 def test_autonomous_mode_cannot_bypass_protected_branch_deny():
-    policy = PolicyEngine.from_yaml("config/policy.yaml")
+    policy = PolicyEngine.from_yaml("src/aep/config/policy.yaml")
     decision = policy.evaluate("github.push", {"branch": "main"})
     assert decision.decision == PolicyDecisionType.DENY
 
 
 def test_autonomous_mode_cannot_bypass_force_push_approval():
-    policy = PolicyEngine.from_yaml("config/policy.yaml")
+    policy = PolicyEngine.from_yaml("src/aep/config/policy.yaml")
     decision = policy.evaluate("github.push", {"branch": "feature", "force": True})
     assert decision.decision == PolicyDecisionType.REQUIRE_APPROVAL
 
 
 def test_autonomous_mode_cannot_execute_denied_destructive_infrastructure_action():
-    policy = PolicyEngine.from_yaml("config/policy.yaml")
+    policy = PolicyEngine.from_yaml("src/aep/config/policy.yaml")
     decision = policy.evaluate("infra.terraform_destroy")
     assert decision.decision == PolicyDecisionType.DENY
 
 
 def test_autonomous_mode_cannot_bypass_production_deployment_approval():
-    policy = PolicyEngine.from_yaml("config/policy.yaml")
+    policy = PolicyEngine.from_yaml("src/aep/config/policy.yaml")
     decision = policy.evaluate("deployment.deploy", {"environment": "production"})
     assert decision.decision == PolicyDecisionType.REQUIRE_APPROVAL
 

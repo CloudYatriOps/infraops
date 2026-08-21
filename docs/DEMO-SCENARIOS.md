@@ -2,7 +2,7 @@
 
 **`aep demo run` (and `aep demo run --scenario ambiguous`) is the one
 scripted, reproducible demo** — see `docs/DEMO.md`. It runs the same real
-code path every time: materialize `demo_project_template/`, resolve
+code path every time: materialize `src/aep/demo_template/`, resolve
 skills, route through `AIGateway`, run the real secret scanner, apply a
 fix, re-scan, persist to Postgres.
 

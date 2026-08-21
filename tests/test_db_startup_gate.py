@@ -17,7 +17,8 @@ from aep.db import migrations
 from aep.db.startup import DatabaseUnavailableError, SchemaDriftError, verify_database
 from aep.db.state_store_postgres import PostgresStateStore
 
-from db_pg_helper import LOCAL_DSN, drop_test_schema, fresh_test_schema_connection, local_postgres_available
+import db_pg_helper
+from db_pg_helper import drop_test_schema, dsn_with_schema, fresh_test_schema_connection, local_postgres_available
 
 pytestmark = pytest.mark.skipif(
     not local_postgres_available(),
@@ -29,7 +30,7 @@ def _dsn_for_schema(schema: str) -> str:
     # options=-csearch_path=... makes new connections (e.g. the one
     # verify_database opens internally) resolve to the same throwaway
     # schema as the fixture's own connection.
-    return f"{LOCAL_DSN} options='-c search_path={schema},public'"
+    return dsn_with_schema(schema)
 
 
 @pytest.fixture
@@ -60,19 +61,23 @@ def test_startup_gate_succeeds_against_healthy_migrated_db(migrated_schema):
 # ---- 5b: outage case ----------------------------------------------------
 
 def test_startup_gate_raises_when_postgres_is_down():
-    """Stops the real local postgresql service, confirms construction
-    raises DatabaseUnavailableError (not a silent SQLite fallback or a
-    bare psycopg2 exception), then restarts the service immediately so
-    the rest of the suite is not blocked."""
-    subprocess.run(["service", "postgresql", "stop"], check=True)
-    try:
-        with pytest.raises(DatabaseUnavailableError):
-            verify_database(LOCAL_DSN, connect_timeout=2)
-        with pytest.raises(DatabaseUnavailableError):
-            PostgresStateStore(dsn=LOCAL_DSN)
-    finally:
-        subprocess.run(["service", "postgresql", "start"], check=True)
-        _wait_for_postgres()
+    """Confirms construction against an unreachable PostgreSQL raises
+    DatabaseUnavailableError - not a silent SQLite fallback, and not a
+    bare psycopg2 exception.
+
+    This used to `service postgresql stop`/`start` around the assertion.
+    That only ever worked on a Linux box with a system-managed Postgres:
+    it is meaningless against AEP's own embedded local server and simply
+    errors on Windows (`FileNotFoundError: service`). Pointing at a
+    closed port exercises exactly the same guarantee - the gate's
+    behavior when the database cannot be reached - without depending on
+    a service manager, and without taking the database down for the rest
+    of the suite."""
+    unreachable = "host=127.0.0.1 port=1 user=aep password=x dbname=aep_platform"
+    with pytest.raises(DatabaseUnavailableError):
+        verify_database(unreachable, connect_timeout=2)
+    with pytest.raises(DatabaseUnavailableError):
+        PostgresStateStore(dsn=unreachable)
 
 
 def _wait_for_postgres(timeout: float = 15.0) -> None:
@@ -81,7 +86,7 @@ def _wait_for_postgres(timeout: float = 15.0) -> None:
     last_exc = None
     while time.time() < deadline:
         try:
-            conn = psycopg2.connect(LOCAL_DSN, connect_timeout=2)
+            conn = psycopg2.connect(db_pg_helper.LOCAL_DSN, connect_timeout=2)
             conn.close()
             return
         except Exception as exc:  # noqa: BLE001
@@ -209,12 +214,13 @@ def test_default_still_raises_dbunavailable_when_postgres_down_not_silent_fallba
     from aep.db.factory import build_state_store
 
     monkeypatch.delenv("AEP_DB_BACKEND", raising=False)
-    monkeypatch.delenv("AEP_POSTGRES_DSN", raising=False)
+    # Point the DEFAULT resolution at an unreachable server rather than
+    # stopping a system service (see the note on
+    # test_startup_gate_raises_when_postgres_is_down). The assertion is
+    # unchanged: the default path must raise, never silently hand back a
+    # SQLite store.
+    monkeypatch.setenv("AEP_POSTGRES_DSN",
+                       "host=127.0.0.1 port=1 user=aep password=x dbname=aep_platform")
 
-    subprocess.run(["service", "postgresql", "stop"], check=True)
-    try:
-        with pytest.raises(DatabaseUnavailableError):
-            build_state_store(str(tmp_path / "unused.db"))
-    finally:
-        subprocess.run(["service", "postgresql", "start"], check=True)
-        _wait_for_postgres()
+    with pytest.raises(DatabaseUnavailableError):
+        build_state_store(str(tmp_path / "unused.db"))

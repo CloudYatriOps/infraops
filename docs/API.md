@@ -29,7 +29,7 @@ python3 -c "from aep.api.app import create_app; create_app().run(port=8000)"
 
 Every request except `GET /health` requires `Authorization: Bearer
 <key>`, checked against a new `api_keys` table
-(`supabase/migrations/0007_api_auth.sql`):
+(`src/aep/migrations_sql/0007_api_auth.sql`):
 
 - `key_hash` — sha256 of the raw key. **The raw key itself is never
   stored** — only its hash, so a database dump alone cannot be used to
@@ -98,7 +98,7 @@ metadata and OmniRoute's honest reachability status are exposed.
 ## Route surface
 
 All routes return JSON. `project_id`s are Postgres `uuid` values (see
-`supabase/migrations/0001_initial_schema.sql`) — a non-uuid lookup
+`src/aep/migrations_sql/0001_initial_schema.sql`) — a non-uuid lookup
 value is reported as `404`, never a `500`.
 
 | Method | Path | Calls into |

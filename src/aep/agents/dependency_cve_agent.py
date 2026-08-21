@@ -106,7 +106,7 @@ class DependencyCVEAgent:
         unsafe_plans = [p for p in plans if not p.safe]
 
         # Avoid blind upgrades: a major-version-bump plan is still routed
-        # through the *existing* policy engine (config/policy.yaml already
+        # through the *existing* policy engine (src/aep/config/policy.yaml already
         # has a `dependency.upgrade` / major_version_bump rule from Phase 1)
         # before it's allowed to proceed automatically.
         major_bumps = [p for p in safe_plans if p.major_version_bump]

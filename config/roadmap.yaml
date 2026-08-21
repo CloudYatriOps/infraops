@@ -211,7 +211,7 @@ phases:
       - id: security.policy_integration
         description: >
           CRITICAL/HIGH/MEDIUM/LOW/INFO severity -> DENY/REQUIRE_APPROVAL/WARN/ALLOW via the
-          existing PolicyEngine/config/policy.yaml; secret.commit reused unmodified
+          existing PolicyEngine/src/aep/config/policy.yaml; secret.commit reused unmodified
         test_paths: ["tests/test_security_policy.py"]
       - id: security.false_positive_suppression
         description: >
@@ -543,13 +543,13 @@ phases:
       below.
     capabilities:
       - id: foundation.postgres_schema
-        description: "Canonical PostgreSQL schema (supabase/migrations/0001_initial_schema.sql) generalizing existing SQLite StateStore concepts: projects/tasks/events, runtime workers/leases/locks/schedules, incidents, findings, deployments/release_gates/artifacts, memory_records"
+        description: "Canonical PostgreSQL schema (src/aep/migrations_sql/0001_initial_schema.sql) generalizing existing SQLite StateStore concepts: projects/tasks/events, runtime workers/leases/locks/schedules, incidents, findings, deployments/release_gates/artifacts, memory_records"
         test_paths: ["tests/test_db_migrations.py", "tests/test_db_repositories_postgres.py"]
       - id: foundation.migration_tooling
         description: "src/aep/db/migrations.py: apply/status/validate migration runner with checksum drift/tamper detection; real end-to-end lifecycle proof against local Postgres"
         test_paths: ["tests/test_db_migrations.py"]
       - id: foundation.migration_only_enforcement
-        description: "Lint-style proof that no CREATE/ALTER/DROP TABLE or CREATE INDEX literal exists in src/aep/ outside the migration runner/migration files; database.schema_change added to config/policy.yaml as REQUIRE_APPROVAL"
+        description: "Lint-style proof that no CREATE/ALTER/DROP TABLE or CREATE INDEX literal exists in src/aep/ outside the migration runner/migration files; database.schema_change added to src/aep/config/policy.yaml as REQUIRE_APPROVAL"
         test_paths: ["tests/test_db_migration_only_enforcement.py"]
       - id: foundation.schema_drift_detection
         description: "drift_report() compares live information_schema/pg_catalog state against migration files on disk; real before/after proof that an out-of-band ALTER TABLE is detected"
@@ -732,7 +732,7 @@ phases:
       # hardcoded value. The central orchestrator skill gate
       # (`Orchestrator._apply_skill_gate`, closing the one known Stage B
       # gap) and a real end-to-end demo flow (src/aep/demo.py,
-      # demo_project_template/) round out the stage. Real OmniRoute
+      # src/aep/demo_template/) round out the stage. Real OmniRoute
       # network access is UNAVAILABLE in this sandbox (no AI_BASE_URL
       # configured) - the demo path honestly falls back to
       # `FakeAIProvider`, never presenting it as real inference.
@@ -804,7 +804,7 @@ phases:
       - id: stage_c.end_to_end_demo
         description: >
           Real, reproducible demo flow (`src/aep/demo.py`,
-          `demo_project_template/`, `aep demo run`): materializes the
+          `src/aep/demo_template/`, `aep demo run`): materializes the
           fixture into a real git repo, seeds/resolves skills, routes an
           AI call through `AIGateway` (honestly to `FakeAIProvider` -
           OmniRoute unavailable), runs the real secret scanner (blocks on
@@ -1082,7 +1082,7 @@ phases:
           (src/aep/intelligence/ci_clustering.py) - honestly reports
           `NOT_IMPLEMENTED`: this schema has no ci_runs/build-failure
           table anywhere (checked src/aep/cicd/models.py,
-          supabase/migrations/*.sql), and Phase 6 CI/CD
+          src/aep/migrations_sql/*.sql), and Phase 6 CI/CD
           triggers/orchestrates/classifies CI runs in the moment
           (failure_classification.py) without persisting a
           failure-signature history to cluster across runs/projects -
@@ -1104,7 +1104,7 @@ phases:
           (src/aep/infra/cloud/'s only real adapter, AWS, has 11 read-only
           capability areas and none of them is cost/billing; Azure/GCP/OCI
           have no adapter at all; no cost/billing/usage table exists in
-          any supabase/migrations/*.sql). analyze_cost_intelligence()
+          any src/aep/migrations_sql/*.sql). analyze_cost_intelligence()
           always returns a BLOCKED CostSignal per known provider (reusing
           infra.cloud.registry.known_providers(), not re-listing
           providers) with an explicit reason - never a fabricated dollar

@@ -14,7 +14,7 @@ Honesty notes baked into the content itself (not just prose elsewhere):
   * `terraform`/`kubernetes`/`helm` skills describe discovery/validation/
     remediation-boundary procedures only - they never claim a live
     cluster/cloud apply capability (see `prohibited_actions` naming the
-    exact destructive policy actions from config/policy.yaml that are
+    exact destructive policy actions from src/aep/config/policy.yaml that are
     DENY, e.g. "infra.terraform_apply" is NOT here because Phase 5 never
     calls it; "infra.resource_delete"/"infra.terraform_destroy"/
     "infra.cluster_resource_delete" ARE listed as prohibited because they
@@ -88,7 +88,7 @@ CANONICAL_SKILLS: list[tuple[Skill, SkillVersion]] = [
                "Prevent and detect credential exposure in the repository, including its history.",
                "Working tree and git history read-only inspection; never rewrites history automatically."),
         _v("secrets", risk_level=RiskLevel.HIGH,
-           description="Runs the real gitleaks scanner; secret.commit is always DENY (config/policy.yaml); history inspection is read-only and explicitly ALLOWed (security.git_history_inspection) - no automatic history rewrite is ever performed.",
+           description="Runs the real gitleaks scanner; secret.commit is always DENY (src/aep/config/policy.yaml); history inspection is read-only and explicitly ALLOWed (security.git_history_inspection) - no automatic history rewrite is ever performed.",
            capabilities=["secret_scanning", "git_history_inspection"],
            allowed_tools=["shell.run", "filesystem.read", "git.log", "git.diff"],
            prohibited_actions=["secret.commit"],
@@ -199,7 +199,7 @@ CANONICAL_SKILLS: list[tuple[Skill, SkillVersion]] = [
                "Guarantee every schema change is reviewable, reversible in principle, and drift-detected - never an ad hoc mutation.",
                "Schema-change discipline generally; PostgreSQL specifics live in the postgresql skill."),
         _v("database", risk_level=RiskLevel.HIGH,
-           description="Schema changes are migration-only; database.schema_change is a fixed REQUIRE_APPROVAL policy literal (config/policy.yaml); no direct production schema mutation, no parameterization shortcuts, no credential leakage.",
+           description="Schema changes are migration-only; database.schema_change is a fixed REQUIRE_APPROVAL policy literal (src/aep/config/policy.yaml); no direct production schema mutation, no parameterization shortcuts, no credential leakage.",
            capabilities=["schema_change_governance", "migration_review"],
            allowed_tools=["filesystem.read", "filesystem.write", "shell.run"],
            prohibited_actions=["operations.database_change"],
@@ -213,7 +213,7 @@ CANONICAL_SKILLS: list[tuple[Skill, SkillVersion]] = [
                "Keep the real running Postgres schema exactly synchronized with the migration files on disk - no exceptions.",
                "src/aep/db/migrations.py's apply/status/validate/drift_report runner against the real local database; parameterized SQL only in src/aep/db/postgres.py."),
         _v("postgresql", risk_level=RiskLevel.HIGH,
-           description="Requires migration-only changes (schema-mutating DDL statements may only appear in migrations.py's own tracking-table bootstrap or supabase/migrations/*.sql - enforced by tests/test_db_migration_only_enforcement.py), parameterized SQL only (no f-string SQL), drift_report() before/after any change, and no credential value ever logged (dsn_from_parts never printed).",
+           description="Requires migration-only changes (schema-mutating DDL statements may only appear in migrations.py's own tracking-table bootstrap or src/aep/migrations_sql/*.sql - enforced by tests/test_db_migration_only_enforcement.py), parameterized SQL only (no f-string SQL), drift_report() before/after any change, and no credential value ever logged (dsn_from_parts never printed).",
            capabilities=["migration_apply", "migration_validate", "schema_drift_detection"],
            allowed_tools=["filesystem.read", "shell.run"],
            prohibited_actions=["operations.database_change"],
@@ -238,7 +238,7 @@ CANONICAL_SKILLS: list[tuple[Skill, SkillVersion]] = [
         _skill("github", "GitHub Operations", "Remote GitHub operations: branches, PRs, issues, workflow/status inspection.",
                "Provide safe, capability-scoped remote GitHub operations, gated by the same policy as local git.", "Real GitHub API via github/client.py; force-push and protected-branch push are gated exactly like local git."),
         _v("github", risk_level=RiskLevel.MEDIUM,
-           description="github.push to main/master is DENY; github.push force=true is REQUIRE_APPROVAL - the identical rule shape as local git.push, per config/policy.yaml's Phase 2 addendum comment.",
+           description="github.push to main/master is DENY; github.push force=true is REQUIRE_APPROVAL - the identical rule shape as local git.push, per src/aep/config/policy.yaml's Phase 2 addendum comment.",
            capabilities=["remote_version_control", "pull_request_management", "ci_status_inspection"],
            allowed_tools=["github.push_branch", "github.create_pull_request", "github.get_pull_request",
                           "github.update_pull_request", "github.comment_on_pr", "github.list_pr_files",

@@ -21,14 +21,24 @@ from aep.db.postgres import (
 from aep.skills.models import LifecycleState, RiskLevel, Skill, SkillDependency, SkillVersion
 from aep.skills.registry import SkillImmutabilityError, SkillRegistry
 
-LOCAL_DSN = dsn_from_parts("localhost", 5432, "aep", "aep_local_dev_only", "aep_platform")
+# Resolve the DSN the way the product does (explicit AEP_PG_*/
+# AEP_POSTGRES_DSN if set, else AEP's own zero-config embedded local
+# PostgreSQL) instead of hardcoding a developer-installed server on 5432.
+from aep.db.state_store_postgres import dsn_from_env
+
+def _dsn() -> str:
+    # Resolved lazily, NOT at import: resolving here at module-import
+    # time starts the embedded server during pytest COLLECTION, which
+    # races pgserver's own reference-counted shutdown and produced a
+    # collection-time ConnectionRefused for the whole file.
+    return dsn_from_env()
 
 
 @pytest.fixture()
 def pg_registry():
-    pool = ConnectionPool(LOCAL_DSN)
+    pool = ConnectionPool(_dsn())
     registry = SkillRegistry(PostgresSkillRepository(pool), PostgresSkillVersionRepository(pool),
-                              policy_path="config/policy.yaml")
+                              policy_path="src/aep/config/policy.yaml")
     yield registry
     pool.closeall()
 
@@ -43,7 +53,7 @@ def test_publish_persists_and_is_independently_readable(pg_registry):
     pg_registry.publish(SkillVersion(skill_id=skill_id, version="1.0.0", allowed_tools=["shell.run"]))
 
     # Independent connection - no shared Python objects with the writer.
-    conn = psycopg2.connect(LOCAL_DSN)
+    conn = psycopg2.connect(_dsn())
     try:
         cur = conn.cursor()
         cur.execute("SELECT skill_id, name FROM skills WHERE skill_id=%s", (skill_id,))
@@ -65,7 +75,7 @@ def test_dependency_rows_persist_and_are_independently_readable(pg_registry):
     pg_registry.publish(SkillVersion(skill_id=dep_id, version="1.0.0"))
     pg_registry.publish(SkillVersion(skill_id=parent_id, version="1.0.0",
                                        dependencies=[SkillDependency(dep_id, ">=1.0.0")]))
-    conn = psycopg2.connect(LOCAL_DSN)
+    conn = psycopg2.connect(_dsn())
     try:
         cur = conn.cursor()
         cur.execute(
@@ -97,7 +107,7 @@ def test_database_trigger_rejects_raw_update_of_published_content(pg_registry):
     pg_registry.register_skill(Skill(skill_id=skill_id, name="Test Skill"))
     pg_registry.publish(SkillVersion(skill_id=skill_id, version="1.0.0", description="original"))
 
-    conn = psycopg2.connect(LOCAL_DSN)
+    conn = psycopg2.connect(_dsn())
     try:
         cur = conn.cursor()
         with pytest.raises(psycopg2.errors.RaiseException):
@@ -121,7 +131,7 @@ def test_database_trigger_allows_the_one_way_deprecate_transition(pg_registry):
     pg_registry.deprecate(skill_id, "1.0.0")
     assert pg_registry.is_deprecated(skill_id, "1.0.0")
 
-    conn = psycopg2.connect(LOCAL_DSN)
+    conn = psycopg2.connect(_dsn())
     try:
         cur = conn.cursor()
         cur.execute("SELECT lifecycle_state FROM skill_versions WHERE skill_id=%s AND version=%s",
@@ -139,11 +149,11 @@ def test_real_canonical_seed_round_trips_through_real_postgres(pg_registry):
     from aep.skills.definitions import seed_canonical_skills
     seed_canonical_skills(pg_registry)  # idempotent if already seeded by another test run
 
-    fresh_pool = ConnectionPool(LOCAL_DSN)
+    fresh_pool = ConnectionPool(_dsn())
     try:
         fresh_registry = SkillRegistry(PostgresSkillRepository(fresh_pool),
                                         PostgresSkillVersionRepository(fresh_pool),
-                                        policy_path="config/policy.yaml")
+                                        policy_path="src/aep/config/policy.yaml")
         security = fresh_registry.latest_version("security")
         assert security.version == "1.0.0"
         assert "gitleaks" in security.required_checks

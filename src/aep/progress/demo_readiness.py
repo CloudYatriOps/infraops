@@ -48,12 +48,12 @@ def _check_importable(label: str, module_name: str) -> ReadinessCheck:
 
 
 def _check_demo_fixture_present() -> ReadinessCheck:
-    template = REPO_ROOT / "demo_project_template"
+    template = REPO_ROOT / "src/aep/demo_template"
     required = ["app.py", "test_app.py", "config.py"]
     missing = [f for f in required if not (template / f).is_file()]
     ok = template.is_dir() and not missing
     detail = "" if ok else f"missing: {missing}" if template.is_dir() else f"{template} does not exist"
-    return ReadinessCheck("demo_project_template/ fixture present", ok, detail)
+    return ReadinessCheck("src/aep/demo_template/ fixture present", ok, detail)
 
 
 def _check_e2e_test_passes() -> ReadinessCheck:

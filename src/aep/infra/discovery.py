@@ -5,7 +5,7 @@ binary, never reaches the network, and never mutates anything, which is
 what makes Part 6's "discovery MUST default to read-only" true by
 construction here rather than by policy alone (policy still gates it too;
 see `security.finding`-style rules for `infra.discovery` in
-config/policy.yaml).
+src/aep/config/policy.yaml).
 
 Provider-agnostic by construction (Part 1: "Do not assume a specific cloud
 provider"): this module records *hints* about what a file appears to

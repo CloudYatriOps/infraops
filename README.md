@@ -56,49 +56,105 @@ continuously-reconciled version of this table):
 
 ## Quick Start
 
-**AEP is local-first by default**: it needs no PostgreSQL install, no
-Supabase project, and no database password from you. `pgserver` (a core
-dependency, not an extra) bundles real PostgreSQL 16.2 + pgvector binaries
-for Windows/macOS/Linux and AEP manages that local instance itself — see
-`docs/DATABASE.md` and `src/aep/db/local_postgres.py`. Current constraint,
-verified against PyPI's published wheel list: `pgserver` ships wheels for
-**CPython 3.9–3.12 only** (no 3.13 wheel yet), hence
-`requires-python = ">=3.10,<3.13"`.
+**AEP is a local-first product.** No PostgreSQL install, no Supabase
+project, no database password, no Node/npm, no virtualenv activation, and
+no manual migration step. `pgserver` (a core dependency) bundles real
+PostgreSQL 16.2 + pgvector binaries and AEP manages that local instance
+itself; the React UI ships pre-built inside the package and is served by
+AEP's own backend.
 
 ```bash
-# 1. Clone and enter the repo
-git clone <this-repo-url> aep-platform && cd aep-platform
-
-# 2. Install (any Python 3.10/3.11/3.12 - no venv activation required for
-#    normal use; `pip install --user` or a venv both work)
-pip install -e ".[dev,api,anthropic]"
-# add more extras as needed, e.g.:
-#   pip install -e ".[dev,api,anthropic,infra,sbom,github,dependency-scanning]"
-# or the union of every real optional integration: pip install -e ".[all]"
-
-# 3. Run the reproducible demo - no PostgreSQL, no Supabase, no
-#    AEP_PG_PASSWORD needed; a local embedded Postgres is provisioned
-#    automatically on first use, under your platform's AEP data directory
-#    (see docs/DATABASE.md), and reused/persisted on every run after.
-aep demo readiness
-aep demo run
-aep demo run --scenario ambiguous
-
-# 4. Start the API (dev mode - disables auth locally, prints a loud warning)
-export AEP_API_DEV_MODE=1
-python3 -c "from aep.api.app import create_app; create_app().run(port=5000)"
-
-# 5. In another shell, start the UI
-cd ui && npm ci && npm run dev
-# open http://localhost:5173
+pip install aep-platform
+aep
 ```
 
-**Pointing AEP at your own Postgres instead** (a shared dev server, a
-Supabase project, anything): set `AEP_POSTGRES_DSN` (or any `AEP_PG_*`
-var) — this opts back OUT of the local embedded database entirely and
-back into manual migration application, exactly as before. See
-`docs/DATABASE.md`. `bash scripts/bootstrap.sh` / `docs/BOOTSTRAP.md`
-document that explicit-Postgres path end to end.
+`aep` (with no subcommand) starts everything and prints where to go:
+
+```
+AEP starting...
+Local database: READY  (C:\Users\you\AppData\Local\AEP)
+Migrations:     READY
+AI Provider:    NOT_CONFIGURED  (OmniRoute is not configured: missing env var(s) ['AI_BASE_URL', 'AI_CREDENTIAL'])
+UI:             READY
+Runtime:        READY
+
+Open: http://127.0.0.1:53017
+```
+
+The port is chosen automatically so AEP never collides with anything you
+already run (pass `--port` to pin one). Your data lives outside the
+package and survives uninstall, reinstall, and upgrade — see "Your data"
+below.
+
+Run the reproducible demo:
+
+```bash
+aep demo run
+```
+
+```bash
+aep demo run --scenario ambiguous
+```
+
+```bash
+aep demo readiness
+```
+
+**Supported Python: 3.10, 3.11, 3.12.** Not 3.13 — `pgserver` publishes no
+3.13 wheel yet (verified against PyPI's published file list), so
+`requires-python` is `>=3.10,<3.13` rather than claiming support that
+cannot actually install.
+
+### Your data
+
+| What | Where |
+|---|---|
+| Windows | `%LOCALAPPDATA%\AEP\` |
+| macOS | `~/Library/Application Support/AEP/` |
+| Linux | `${XDG_DATA_HOME:-~/.local/share}/aep/` |
+
+PostgreSQL data and logs live under `<AEP data dir>/postgres/`.
+`AEP_DATA_DIR` overrides the location.
+
+`pip uninstall aep-platform` does **not** delete this directory.
+Reinstalling or upgrading reconnects to the same database with all
+history intact (both verified live — see `handoff.md`). To discard your
+data, delete the directory yourself; AEP never does it for you.
+
+### Using your own PostgreSQL instead
+
+Set `AEP_POSTGRES_DSN` (or any `AEP_PG_*` var) and AEP uses that server
+instead of its embedded one — Supabase, a shared dev server, cloud
+Postgres, anything. `scripts/bootstrap.sh` / `docs/BOOTSTRAP.md` cover
+that path, including applying migrations yourself.
+
+### Developer setup
+
+Working on AEP itself (rather than using it) needs the source checkout,
+and Node only if you are changing the UI:
+
+```bash
+git clone <this-repo-url> aep-platform && cd aep-platform
+```
+
+```bash
+pip install -e ".[all,dev]"
+```
+
+```bash
+pytest
+```
+
+Only if you are editing the UI — rebuild the packaged assets afterwards so
+the change ships in the wheel:
+
+```bash
+cd ui && npm ci && npm run dev
+```
+
+```bash
+cd ui && VITE_API_BASE= npx vite build --outDir ../src/aep/ui_dist --emptyOutDir
+```
 
 **Configuring an AI provider**: the platform runs the full demo without
 any AI provider configured, via `FakeAIProvider`. To use a real OmniRoute-
@@ -127,7 +183,7 @@ today vs. illustrative only).
   optional real `AnthropicProvider`; a `ModelRouter` handles per-task-type
   routing, fallback, and a hard token budget (`src/aep/providers/`).
 - **Policy Engine** — declarative YAML rules, ALLOW/DENY/REQUIRE_APPROVAL/WARN,
-  deny-by-default (`src/aep/policy.py`, `config/policy.yaml`).
+  deny-by-default (`src/aep/policy.py`, `src/aep/config/policy.yaml`).
 - **Failure classification & recovery** — transient/security/test/etc.
   classification, exponential backoff, and a per-`(project, task_type)`
   circuit breaker (`src/aep/failure.py`).
@@ -247,7 +303,7 @@ from aep.bootstrap import build_orchestrator
 from aep.github.planner import plan_github_fix_and_pr
 from aep.models import ProjectConfig
 
-project = ProjectConfig(id='demo', name='demo', repo_path='/path/to/local/clone', policy_path='config/policy.yaml')
+project = ProjectConfig(id='demo', name='demo', repo_path='/path/to/local/clone', policy_path='src/aep/config/policy.yaml')
 orch = build_orchestrator(db_path='gh_state.db', project=project, enable_github=True, use_anthropic=True)
 plan_github_fix_and_pr(orch, project_id='demo', project_root='/path/to/local/clone',
                         target_file='app.py', bug_description='...',
@@ -325,7 +381,7 @@ ARCHITECTURE.md §24.
   security-group finding from the same IaC fixture — is escalated to a
   human, never guessed at.
 - **Severity-driven policy** via the *existing* `PolicyEngine`/
-  `config/policy.yaml`: CRITICAL findings are **always** escalated, even
+  `src/aep/config/policy.yaml`: CRITICAL findings are **always** escalated, even
   when a mechanical fix exists, so an unresolved CRITICAL never reaches an
   automatic PR; HIGH gets an automatic fix attempt where safe; LOW/INFO
   are tracked, never auto-remediated.
@@ -568,7 +624,7 @@ it is no longer reached by anything without asking for it. See
 `docs/DATABASE.md` for the full picture and ARCHITECTURE.md §30/§31/§31a
 for the design discussion and the default-flip writeup.
 
-- `supabase/migrations/` — versioned SQL migrations (source of truth for
+- `src/aep/migrations_sql/` — versioned SQL migrations (source of truth for
   the Postgres schema).
 - `src/aep/db/migrations.py` — apply/status/validate runner with
   checksum drift/tamper detection and live-schema drift reporting.
@@ -614,7 +670,7 @@ deterministic projector into a Claude-compatible skill artifact. See
   from a canonical published skill version to a Claude-compatible skill
   artifact; running the same version through it twice produces a
   byte-identical hash.
-- `supabase/migrations/0006_skill_registry.sql` — `skills`/
+- `src/aep/migrations_sql/0006_skill_registry.sql` — `skills`/
   `skill_versions`/`skill_dependencies`, with published-version
   immutability enforced by both application code and a database trigger.
 - `aep skills list|show|versions|validate|project` (all support `--json`;
@@ -636,7 +692,7 @@ full design.
   enforcement gate wired into `run_task`, closing the one gap Stage B
   named explicitly; strictly opt-in (no-op unless a `skill_registry` is
   passed), so every pre-Stage-C caller is unaffected.
-- `src/aep/demo.py` + `demo_project_template/` — the real demo flow:
+- `src/aep/demo.py` + `src/aep/demo_template/` — the real demo flow:
   materialize a fixture repo, resolve skills, route an AI call, run the
   real secret scanner (blocks, then a real fix, then a real clean
   re-scan), run the real fix-bug graph to completion, persist to

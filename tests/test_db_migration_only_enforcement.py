@@ -3,7 +3,7 @@ tests/test_infra_threat_model.py / tests/test_operations_threat_model.py /
 tests/test_runtime_threat_model.py): application/runtime code in
 src/aep/ must never issue schema-mutating DDL directly - the ONLY place
 allowed to do that is the migration runner (src/aep/db/migrations.py,
-which itself only ever executes the contents of supabase/migrations/*.sql
+which itself only ever executes the contents of src/aep/migrations_sql/*.sql
 files, never a DDL string literal of its own) and the migration files
 themselves.
 """
@@ -73,12 +73,12 @@ def test_migration_runner_itself_never_hardcodes_ddl_it_only_executes_files_on_d
             assert table not in window, (
                 f"migrations.py contains a hardcoded DDL statement referencing "
                 f"domain table {table!r} - all domain DDL must live only in "
-                f"supabase/migrations/*.sql"
+                f"src/aep/migrations_sql/*.sql"
             )
 
 
 def test_every_migration_file_has_a_sequential_id_and_header_comment_block():
-    migrations_dir = SRC.parent.parent / "supabase" / "migrations"
+    migrations_dir = SRC / "migrations_sql"
     files = sorted(migrations_dir.glob("*.sql"))
     assert files, "expected at least one migration file"
     for f in files:

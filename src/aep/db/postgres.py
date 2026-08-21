@@ -3,7 +3,7 @@
 This is the ONLY module in the platform allowed to hold raw SQL for these
 aggregates (migrations.py holds the DDL-only exception for schema
 mutation itself - see its module docstring). Everything here is DML
-(SELECT/INSERT/UPDATE) against the schema `supabase/migrations/` defines;
+(SELECT/INSERT/UPDATE) against the schema `src/aep/migrations_sql/` defines;
 no schema-mutating DDL literal appears in this file,
 enforced by the same lint test that scans the rest of src/aep/.
 """

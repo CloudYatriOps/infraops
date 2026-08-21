@@ -16,7 +16,7 @@ Scope:
     points to compare (never guessed from a single point, same
     discipline as `risk_prediction.py::_severity_trend`).
   * `category` values are checked against the REAL DB check-constraint
-    enum in `supabase/migrations/0001_initial_schema.sql`
+    enum in `src/aep/migrations_sql/0001_initial_schema.sql`
     (`secret, sast, iac, container, kubernetes, helm, dependency,
     infrastructure`) - `secret_findings` filters on `category == "secret"`
     only, not guessed synonyms.

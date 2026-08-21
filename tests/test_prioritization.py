@@ -21,7 +21,7 @@ from aep.intelligence.prioritization import (
 
 def _project(project_id: str, posture: str = "allow") -> ProjectRecord:
     return ProjectRecord(id=project_id, name=project_id, repo_path="/tmp/x",
-                          policy_path="config/policy.yaml", default_posture=posture)
+                          policy_path="src/aep/config/policy.yaml", default_posture=posture)
 
 
 def _finding(id_, project_id, category, severity, days_old, resource=None,

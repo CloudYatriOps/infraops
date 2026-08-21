@@ -43,7 +43,7 @@ def _finding(id_, project_id, category, severity, resource, days_old=1,
 def project_repo():
     repo = FakeProjectRepository()
     for pid in ("proj-a", "proj-b", "proj-c"):
-        repo.save(ProjectRecord(id=pid, name=pid, repo_path="/tmp/x", policy_path="config/policy.yaml"))
+        repo.save(ProjectRecord(id=pid, name=pid, repo_path="/tmp/x", policy_path="src/aep/config/policy.yaml"))
     return repo
 
 

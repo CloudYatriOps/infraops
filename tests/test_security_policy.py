@@ -1,5 +1,5 @@
 """Policy integration (Phase 4 Part 8/13) - the EXISTING PolicyEngine and
-config/policy.yaml, extended with `security.finding` rules; no new policy
+src/aep/config/policy.yaml, extended with `security.finding` rules; no new policy
 mechanism. Also confirms the pre-existing, unconditional `secret.commit`
 DENY rule (Phase 1) is exactly what SecurityAgent leans on for "secret
 detected -> block commit"."""

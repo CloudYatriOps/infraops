@@ -16,7 +16,7 @@ platform has no real cloud cost/billing data anywhere.
     are this module, the pre-existing `cost-optimization` skill
     definition, and unrelated doc/gateway text).
   * There is no `resource_cost`/`billing`/`usage` table in any
-    `supabase/migrations/*.sql`.
+    `src/aep/migrations_sql/*.sql`.
   * No cloud credentials are configured in this sandbox (same
     "no live cloud credentials" gap the OmniRoute/GitHub honest-block
     pattern and `CloudAdapterStatus.UNAVAILABLE` already document for
@@ -56,7 +56,7 @@ _BLOCKED_REASON = (
     "no cloud provider cost/billing API access or credentials are configured in this "
     "environment, and no cost/usage data is persisted anywhere in this schema (checked: "
     "src/aep/infra/cloud/ - the AWS adapter's 11 capability areas do not include cost/billing, "
-    "and Azure/GCP/OCI have no adapter at all; supabase/migrations/*.sql has no cost/billing/"
+    "and Azure/GCP/OCI have no adapter at all; src/aep/migrations_sql/*.sql has no cost/billing/"
     "usage table). Real cost intelligence requires a real cost-API integration and real "
     "credentials; neither exists here, so no cost figure is fabricated."
 )

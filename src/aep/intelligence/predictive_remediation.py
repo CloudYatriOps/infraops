@@ -79,7 +79,7 @@ DECISION_INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
 _MIN_OCCURRENCES_FOR_AUTOMATION = 2
 
 # Fixed, documented category -> skill_id mapping (matches the real DB
-# category check-constraint in supabase/migrations/0001_initial_schema.sql
+# category check-constraint in src/aep/migrations_sql/0001_initial_schema.sql
 # and the real skill_id values in skills/definitions.py). Not invented
 # per-finding - a category either has a known remediation skill or it
 # doesn't.

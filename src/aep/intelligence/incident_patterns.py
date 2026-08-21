@@ -25,7 +25,7 @@ Scope (read this before extending):
     thin prioritization-integration hook.
   * OUT, not silently faked: CI-job-specific failure data. Nothing in
     the schema records a CI job/step identity distinct from a finding or
-    a deployment attempt (`supabase/migrations/*.sql` has no `ci_runs`
+    a deployment attempt (`src/aep/migrations_sql/*.sql` has no `ci_runs`
     table), so `CI_FAILURE_CLUSTER` is never emitted by this module -
     see `docs/PHASE10.md` for the honest omission rather than a fake
     always-empty signal.

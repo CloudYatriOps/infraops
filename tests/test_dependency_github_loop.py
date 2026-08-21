@@ -22,6 +22,7 @@ hand-rolling any extra fake-transport state.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 
 import pytest
@@ -36,7 +37,18 @@ from github_fakes import FakeGitHubTransport
 
 
 def _probe(args, cwd=None, timeout=10):
-    proc = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    # Resolve the binary the SAME way the real scan path does. A bare name
+    # handed to subprocess.run is resolved by the OS against the whole
+    # PATH, which on this kind of machine can pick a DIFFERENT (working)
+    # pip-audit than the one the scan itself ends up using - so the skip
+    # guard below said "available" while the actual scan returned zero
+    # findings, turning an honest skip into a confusing failure.
+    resolved = shutil.which(args[0]) or args[0]
+    try:
+        proc = subprocess.run([resolved] + args[1:], cwd=cwd, capture_output=True,
+                               text=True, timeout=timeout)
+    except OSError:
+        return {"ok": False}
     return {"ok": proc.returncode == 0}
 
 

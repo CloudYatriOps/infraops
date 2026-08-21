@@ -47,8 +47,8 @@ published file list for 0.1.4) - `pyproject.toml`'s `requires-python`
 reflects this (`>=3.10,<3.13`).
 
 **Not yet done** (real, disclosed gaps, not silently deferred): migration
-files (`supabase/migrations/`) and the demo fixture
-(`demo_project_template/`) are not yet packaged *inside* the wheel itself
+files (`src/aep/migrations_sql/`) and the demo fixture
+(`src/aep/demo_template/`) are not yet packaged *inside* the wheel itself
 - see BUGFIX.md BUG-0014 - so a wheel install currently needs
 `AEP_MIGRATIONS_DIR`/`AEP_DEMO_TEMPLATE_DIR` set if the source checkout
 isn't also present. This does not affect `pip install -e .` (editable)
@@ -56,7 +56,7 @@ installs, which is what `git clone` + Quick Start above uses.
 
 ## Layout
 
-- `supabase/migrations/` - the single source of truth for the PostgreSQL
+- `src/aep/migrations_sql/` - the single source of truth for the PostgreSQL
   schema. Each file is `NNNN_name.sql` with a header comment block
   (purpose, affected tables, backward-compatibility notes, rollback
   notes).
@@ -102,11 +102,11 @@ reason) if it isn't reachable, never fake a pass.
 Application/runtime code may never issue `CREATE TABLE`/`ALTER TABLE`/
 `DROP TABLE`/`CREATE INDEX` directly - only the migration runner (which
 itself only ever executes the contents of files in
-`supabase/migrations/`) is allowed to mutate schema. This is enforced by
+`src/aep/migrations_sql/`) is allowed to mutate schema. This is enforced by
 a lint-style scan (`tests/test_db_migration_only_enforcement.py`, same
 convention as `tests/test_infra_threat_model.py` etc.) that fails the
 build if such a literal appears anywhere else in `src/aep/`. A
-`database.schema_change` policy action was added to `config/policy.yaml`
+`database.schema_change` policy action was added to `src/aep/config/policy.yaml`
 as `REQUIRE_APPROVAL`, so any future agent-facing workflow that wraps
 migration application is gated like every other structurally significant
 action - it is not wired to anything yet in Stage A.
@@ -126,7 +126,7 @@ the runner entirely) causes the very next `drift_report()` call to report
 
 ## Schema overview
 
-See `supabase/migrations/0001_initial_schema.sql` for the authoritative,
+See `src/aep/migrations_sql/0001_initial_schema.sql` for the authoritative,
 fully-commented definition. Summary:
 
 | Table | Purpose |

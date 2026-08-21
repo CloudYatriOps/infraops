@@ -30,7 +30,7 @@ def store(tmp_path):
 
 @pytest.fixture
 def policy():
-    return PolicyEngine.from_yaml("config/policy.yaml")
+    return PolicyEngine.from_yaml("src/aep/config/policy.yaml")
 
 
 # ---- Part 1/2: leases, duplicate prevention, crash recovery -----------

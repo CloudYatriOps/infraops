@@ -72,7 +72,7 @@ def test_e2e_secret_discover_remediate_test_rescan_verify(tmp_path):
     subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "initial"], check=True)
 
     project = ProjectConfig(id="e2esecret", name="e2esecret", repo_path=str(repo),
-                             policy_path="config/policy.yaml")
+                             policy_path="src/aep/config/policy.yaml")
     orch = _orch(tmp_path, project)
 
     # DISCOVER + CLASSIFY: a real gitleaks scan of the real fixture.
@@ -130,7 +130,7 @@ def test_e2e_sast_discover_remediate_test_rescan_verify(tmp_path):
     subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "initial"], check=True)
 
     project = ProjectConfig(id="e2esast", name="e2esast", repo_path=str(repo),
-                             policy_path="config/policy.yaml")
+                             policy_path="src/aep/config/policy.yaml")
     orch = _orch(tmp_path, project)
     plan_security_scan(orch, project_id="e2esast", project_root=str(repo), categories=["sast"])
     orch.run_to_completion("e2esast", max_iterations=200)
@@ -175,7 +175,7 @@ def test_e2e_iac_discover_remediate_rescan_verify_and_escalates_the_unfixable_fi
     subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "initial"], check=True)
 
     project = ProjectConfig(id="e2eiac", name="e2eiac", repo_path=str(repo),
-                             policy_path="config/policy.yaml")
+                             policy_path="src/aep/config/policy.yaml")
     orch = _orch(tmp_path, project)
     plan_security_scan(orch, project_id="e2eiac", project_root=str(repo), categories=["iac"])
     orch.run_to_completion("e2eiac", max_iterations=200)

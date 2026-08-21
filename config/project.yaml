@@ -5,7 +5,7 @@
 id: demo
 name: "Demo Project"
 repo_path: "./demo_project"
-policy_path: "./config/policy.yaml"
+policy_path: "./src/aep/config/policy.yaml"
 default_posture: deny
 protected_branches: ["main", "master"]
 token_budget: 100000

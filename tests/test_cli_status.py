@@ -104,7 +104,7 @@ def test_json_status_with_project_includes_task_snapshot(tmp_path, monkeypatch):
     monkeypatch.setenv("AEP_DB_BACKEND", "sqlite")
     roadmap_path = _small_roadmap(tmp_path)
     project = ProjectConfig(id="clitest", name="clitest", repo_path=str(tmp_path),
-                             policy_path="config/policy.yaml")
+                             policy_path="src/aep/config/policy.yaml")
     db_path = str(tmp_path / "cli_state.db")
     orch = build_orchestrator(db_path=db_path, project=project, db_backend="sqlite")
     orch.plan_fix_bug(project_id="clitest", project_root=str(tmp_path),

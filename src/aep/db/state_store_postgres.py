@@ -14,7 +14,7 @@ construct this instead of `StateStore` with no other code changes -
 they do not (documented at the call sites below, not silently papered
 over):
 
-  1. **IDs must be valid UUIDs.** `supabase/migrations/0001_initial_schema.sql`
+  1. **IDs must be valid UUIDs.** `src/aep/migrations_sql/0001_initial_schema.sql`
      declares `tasks.id`/`tasks.project_id` etc as native Postgres `uuid`
      columns. `Task.id`/`Event.id` are always `str(uuid.uuid4())` in real
      orchestrator usage (`orchestrator.new_task_id()`, `EventLogger.log()`),

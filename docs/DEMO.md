@@ -26,7 +26,7 @@ aep providers
 
 Prints a deterministic checklist (explicitly not a percentage) of
 concrete, checkable preconditions: orchestrator skill gate wired, AI
-gateway/OmniRoute adapter importable, `demo_project_template/` fixture
+gateway/OmniRoute adapter importable, `src/aep/demo_template/` fixture
 present, the real end-to-end demo test passes, PostgreSQL is the
 resolved default backend, and the `Evidence` model records what it must.
 Expected shape:
@@ -37,7 +37,7 @@ Expected shape:
 [OK] orchestrator skill gate wired (_apply_skill_gate)
 [OK] AI Gateway importable
 [OK] OmniRoute adapter importable
-[OK] demo_project_template/ fixture present
+[OK] src/aep/demo_template/ fixture present
 [OK] tests/test_end_to_end_demo.py passes - 4 passed in ...s
 [OK] PostgreSQL is the default persistence backend - resolved backend='postgres'
 [OK] Evidence model records source/exit_code/summary
@@ -50,7 +50,7 @@ gate in a script.
 
 ### 2. `aep demo run`
 
-The full happy-path flow: materializes `demo_project_template/` into a
+The full happy-path flow: materializes `src/aep/demo_template/` into a
 real git repo, seeds/resolves canonical skills, routes one AI call
 through `AIGateway` (honestly to `FakeAIProvider` - OmniRoute is
 unavailable in this sandbox, and the output says so explicitly), plans
@@ -60,10 +60,10 @@ block-then-fix-then-clean cycle. Expected shape:
 
 ```
 === AEP DEMO (happy_path) ===
-  - materialized demo_project_template/ into real git repo at /tmp/...
+  - materialized src/aep/demo_template/ into real git repo at /tmp/...
   - seeded 18 canonical skills into skill registry (why-this-skill: ...)
   - AIGateway routed a 'classification' call to provider=fake (...)
-  - persistence: postgres (which-policy-checks: config/policy.yaml, which-provider: fake)
+  - persistence: postgres (which-policy-checks: src/aep/config/policy.yaml, which-provider: fake)
   - real security scanner ran against the fixture repo (what-changed: none yet; ...)
   - applied fix (removed placeholder secret from config.py), operator approved, re-scanned: security_scan now SUCCEEDED (...)
   - what-changed: app.py's add() was rewritten ...

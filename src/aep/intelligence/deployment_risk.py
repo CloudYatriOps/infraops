@@ -11,7 +11,7 @@ Scope:
     `DeploymentRiskForecast`:
       - `DEPENDENCY_RECURRENCE` - REAL: `detect_patterns()` fingerprints
         whose `category == "dependency"` (the real DB check-constraint
-        value - see `supabase/migrations/0001_initial_schema.sql`)
+        value - see `src/aep/migrations_sql/0001_initial_schema.sql`)
         recurring for this project. Trend/horizon derived only from the
         pattern's own `occurrence_count`/`recurrence_interval_days` -
         `UNKNOWN` when no such pattern touches this project.

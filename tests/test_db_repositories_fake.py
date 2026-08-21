@@ -19,7 +19,7 @@ from aep.db.models import EventRecord, FindingRecord, MemoryRecord, ProjectRecor
 
 def test_project_repository_save_and_get_roundtrip():
     repo = FakeProjectRepository()
-    p = ProjectRecord(id=new_id(), name="demo", repo_path="/tmp/demo", policy_path="config/policy.yaml")
+    p = ProjectRecord(id=new_id(), name="demo", repo_path="/tmp/demo", policy_path="src/aep/config/policy.yaml")
     repo.save(p)
     fetched = repo.get(p.id)
     assert fetched is not None

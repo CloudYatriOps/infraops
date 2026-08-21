@@ -71,7 +71,7 @@ reference something that does not actually exist in this platform.
 (cross-checked against a live-wired `ToolRegistry` in
 `tests/test_skills_self_validation.py`), the real scanner ids imported
 directly from the scanner modules' own `SCANNER_ID` constants, and the
-real policy actions read fresh from `config/policy.yaml`.
+real policy actions read fresh from `src/aep/config/policy.yaml`.
 
 ## Dependency resolution
 

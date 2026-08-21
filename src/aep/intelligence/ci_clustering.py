@@ -9,7 +9,7 @@ Checked:
   * `src/aep/cicd/failure_classification.py` - `classify_ci_failure()`
     classifies a single CI failure's job/step data at call time; it does
     not store a failure fingerprint anywhere for later clustering.
-  * `supabase/migrations/*.sql` - no `ci_runs`/`ci_jobs`/
+  * `src/aep/migrations_sql/*.sql` - no `ci_runs`/`ci_jobs`/
     `build_failures` table exists in any migration.
   * `incident_patterns.py` already documented this exact gap:
     `CI_FAILURE_CLUSTER` is listed in its signal vocabulary but "never
@@ -38,7 +38,7 @@ _REASON = (
     "Phase 6 CI/CD (src/aep/cicd/) triggers/orchestrates runs and classifies a failure "
     "in the moment (failure_classification.py) but does not store failure fingerprints "
     "across runs/projects for clustering. Checked: src/aep/cicd/models.py (CIRun is an "
-    "in-process dataclass, never persisted), supabase/migrations/*.sql (no ci_runs table), "
+    "in-process dataclass, never persisted), src/aep/migrations_sql/*.sql (no ci_runs table), "
     "and incident_patterns.py's own pre-existing CI_FAILURE_CLUSTER omission."
 )
 

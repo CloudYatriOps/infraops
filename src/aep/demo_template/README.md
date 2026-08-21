@@ -1,4 +1,4 @@
-# demo_project_template
+# src/aep/demo_template
 
 A disposable fixture project used only by `aep demo run` (see
 `src/aep/demo.py`) and `tests/test_end_to_end_demo.py`-style scenarios.

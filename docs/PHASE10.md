@@ -25,7 +25,7 @@ anywhere in the ranking path.
 | `recurrence` | 0.15 | count of ALL findings (any status) sharing `(project_id, category)`, capped at 5 | a chronic/recurring category deserves attention over a one-off |
 | `age` | 0.10 | days since `discovered_at`, capped at 90 | older open findings should get a nudge upward, but not dominate severity |
 | `blast_radius` | 0.10 | count of other OPEN findings on the same `(project_id, resource)` (same project if no resource set) | a simple heuristic for "how much else is this tangled up with" - deliberately NOT a real dependency graph |
-| `sla` | 0.00 | always 0, `raw: null` | **explicit no-op** - no SLA/due-date column exists anywhere in `supabase/migrations/`. Included at weight 0 so its absence is visible in every breakdown, rather than silently omitted or faked. |
+| `sla` | 0.00 | always 0, `raw: null` | **explicit no-op** - no SLA/due-date column exists anywhere in `src/aep/migrations_sql/`. Included at weight 0 so its absence is visible in every breakdown, rather than silently omitted or faked. |
 
 `score = sum(weight * normalized_factor_score)` for every finding. Ties
 break by older `discovered_at` first, then `finding_id`, so ordering is
@@ -563,7 +563,7 @@ test-failure records anywhere: `src/aep/cicd/models.py` (`CIRun`/
 `CIStatusResult` are in-process dataclasses, never written to a
 repository/table), `src/aep/cicd/failure_classification.py`
 (classifies a single failure in the moment, stores nothing), and
-`supabase/migrations/*.sql` (no `ci_runs`/`ci_jobs`/`build_failures`
+`src/aep/migrations_sql/*.sql` (no `ci_runs`/`ci_jobs`/`build_failures`
 table in any migration). `incident_patterns.py`, `deployment_risk.py`,
 and `architecture.py` had already independently documented this same gap
 via their never-emitted `CI_FAILURE_CLUSTER` signal.
@@ -602,7 +602,7 @@ resource.
 no cloud cost-API integration, credentials, or persisted cost/usage
 table exists anywhere in this platform (checked `src/aep/infra/cloud/`'s
 11 read-only AWS capability areas - none is cost/billing - and
-`supabase/migrations/*.sql`). `waste_signal_findings` IS real (derived
+`src/aep/migrations_sql/*.sql`). `waste_signal_findings` IS real (derived
 from real findings) but is explicitly NOT cost data - just an advisory
 pointer.
 

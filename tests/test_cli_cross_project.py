@@ -11,7 +11,8 @@ import pytest
 
 from tests.db_pg_helper import local_postgres_available
 
-os.environ.setdefault("AEP_PG_PASSWORD", "aep_local_dev_only")
+# (AEP_PG_PASSWORD no longer set here: setting any AEP_PG_* var opts OUT
+# of AEP's zero-config embedded local PostgreSQL - see tests/conftest.py.)
 
 pytestmark = pytest.mark.skipif(not local_postgres_available(),
                                  reason="local Postgres not reachable")
@@ -30,7 +31,7 @@ def test_build_cross_project_payload_returns_items(tmp_path):
     p1, p2 = str(uuid.uuid4()), str(uuid.uuid4())
     for pid in (p1, p2):
         project_repo.save(ProjectRecord(id=pid, name=f"cli-crossproj-{pid[:8]}", repo_path="/tmp/x",
-                                         policy_path="config/policy.yaml"))
+                                         policy_path="src/aep/config/policy.yaml"))
     desc = f"vulnerable package {uuid.uuid4().hex[:8]}"
     for pid in (p1, p2):
         finding_repo.save(FindingRecord(

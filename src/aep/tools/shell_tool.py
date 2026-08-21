@@ -56,8 +56,18 @@ def _handler(capability: str, **kwargs) -> dict:
     # path - `subprocess`'s own executable search on Windows only consults
     # the real process `os.environ`, not an `env=` override, so passing an
     # augmented `env` alone (without this) silently keeps failing.
-    search_path = os.path.dirname(sys.executable) + os.pathsep + os.environ.get("PATH", "")
-    resolved = shutil.which(args[0], path=search_path) or args[0]
+    # "python3" must mean THE INTERPRETER RUNNING AEP, never whatever a
+    # bare `python3` happens to hit on PATH. On Windows that name is
+    # typically either absent or the WindowsApps stub - a different
+    # interpreter with none of AEP's dependencies - so resolving it via
+    # PATH silently runs pip/pytest against the wrong environment
+    # (BUG-0019). Callers keep passing the logical name, so
+    # ALLOWED_BINARIES' exact-name check above is unaffected.
+    if args[0] == "python3":
+        resolved = sys.executable
+    else:
+        search_path = os.path.dirname(sys.executable) + os.pathsep + os.environ.get("PATH", "")
+        resolved = shutil.which(args[0], path=search_path) or args[0]
     exec_args = [resolved] + args[1:]
 
     proc = subprocess.run(exec_args, cwd=cwd, capture_output=True, text=True, timeout=timeout)

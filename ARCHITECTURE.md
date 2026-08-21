@@ -211,7 +211,7 @@ are unaware which one is in use.
 ## 8. Policy Engine
 
 `src/aep/policy.py`. Rules are declarative YAML per project
-(`config/policy.yaml`), evaluated as `evaluate(action, context) ->
+(`src/aep/config/policy.yaml`), evaluated as `evaluate(action, context) ->
 PolicyDecision` before any tool call that matches a rule pattern. Decision
 order: explicit `DENY` rules first (cannot be overridden by anything else
 in this repo, including future self-modifying "self-improvement" code —
@@ -350,7 +350,7 @@ Per §24 of the brief, the platform itself is treated as privileged:
   content" field of the prompt template; the orchestrator and policy
   engine never parse model output as instructions to change policy,
   capabilities, or approval requirements — those are only ever changed by
-  editing `config/policy.yaml`, which is not in the set of files any agent
+  editing `src/aep/config/policy.yaml`, which is not in the set of files any agent
   is permitted to write (`tool_registry` denies `filesystem.write` on
   paths under `config/`).
 - **Poisoned dependency / malicious CI config**: read-only recon and
@@ -363,7 +363,7 @@ Per §24 of the brief, the platform itself is treated as privileged:
   event log and evidence capture redact matches of the same secret
   patterns; tool inputs/outputs are redacted before persistence.
 - **Self-improvement overreach** (§23): nothing in the orchestrator can
-  write to `config/policy.yaml` or change `max_attempts`/approval
+  write to `src/aep/config/policy.yaml` or change `max_attempts`/approval
   requirements at runtime; those require a human commit reviewed like any
   other change to the platform's own repo.
 
@@ -559,7 +559,7 @@ scheduling another attempt, which is the existing NO_AUTO_RETRY path
 (§9) → `BLOCKED_ON_APPROVAL`. This is the "genuinely blocked" case the
 brief asked for, implemented with zero new blocking primitives.
 
-**Policy**: no new enforcement mechanism. `config/policy.yaml` gained one
+**Policy**: no new enforcement mechanism. `src/aep/config/policy.yaml` gained one
 action name, `github.push`, with `deny` rules for `branch: main/master`
 (identical shape to the existing `git.push` rules) and a `require_approval`
 rule for `force: true`. `PushAgent`'s task payload sets
@@ -841,7 +841,7 @@ agent. Phase 4 is a new `security/` package (parallel to `dependency/`),
 one new agent (`SecurityAgent`, distinct from Phase 1's `SecurityScanAgent`
 — see below), one new planner module, three new binaries added to the
 existing `shell.run` allowlist, `security.finding`/
-`security.git_history_inspection` rules added to `config/policy.yaml`, a
+`security.git_history_inspection` rules added to `src/aep/config/policy.yaml`, a
 `security_posture` addition to the existing progress/status system, and 15
 new roadmap capabilities under Phase 4 — not a redesign of anything.
 
@@ -968,7 +968,7 @@ implements three **narrow, verified-shape** fixers — never a generic
 `DependencyCVEAgent`'s four-mode shape (`scan`/`remediate`/`rescan`/
 `escalate`), reusing only existing capabilities
 (`filesystem.*`/`git.*`/`shell.run`) — no new Tool type. Severity maps to
-the *existing* `PolicyEngine.evaluate()` (new `config/policy.yaml` rules,
+the *existing* `PolicyEngine.evaluate()` (new `src/aep/config/policy.yaml` rules,
 no new mechanism):
 
 - **CRITICAL → DENY**: always escalated, **even when a safe mechanical fix
@@ -1113,7 +1113,7 @@ Added on top of Phase 1–4 without changing `orchestrator.py`,
 `models.py`, `tool_registry.py`, `policy.py`'s evaluation order, the
 Phase 4 scanner framework, or the GitHub pipeline. Phase 5 is a new
 `infra/` package (parallel to `dependency/` and `security/`), two new
-agents, one new planner, `infra.*` rules added to `config/policy.yaml`,
+agents, one new planner, `infra.*` rules added to `src/aep/config/policy.yaml`,
 17 new roadmap capabilities, three new CLI commands, and one small
 correctness fix to Phase 4's posture renderer (below) — not a redesign.
 
@@ -1323,7 +1323,7 @@ Validation is not a separate task: it runs inside `infra_remediate`
 immediately after each write, because a gate whose job is to prevent a bad
 commit must run before the commit, not after.
 
-New `config/policy.yaml` rules, using the existing engine: `terraform
+New `src/aep/config/policy.yaml` rules, using the existing engine: `terraform
 apply`, production IAM/networking modification, cluster apply and
 credential rotation are `REQUIRE_APPROVAL`; live resource deletion and
 `terraform destroy` are `DENY` (not approval-gated — this platform should
@@ -1377,7 +1377,7 @@ parallel to `dependency/`/`security/`/`infra/`), three new agents
 (`CIIntelligenceAgent`, `DeploymentAgent`, `DeploymentVerificationAgent`),
 one new tool (`deployment`, alongside `git`/`filesystem`/`shell`/`github`),
 nine new `FailureClass` members, `deployment.*` rules added to
-`config/policy.yaml`, thirteen new roadmap capabilities, two new CLI
+`src/aep/config/policy.yaml`, thirteen new roadmap capabilities, two new CLI
 commands plus a `--cicd-repo` opt-in flag, and 87 new tests — not a
 redesign of anything that existed before.
 
@@ -1504,7 +1504,7 @@ caller-declared deployment target. Conflating them would let a
 mis-inferred Phase 5 heuristic silently select a production deployment
 policy.
 
-`config/policy.yaml` gained, fully evaluated through the EXISTING
+`src/aep/config/policy.yaml` gained, fully evaluated through the EXISTING
 `PolicyEngine` (no new policy mechanism): `deployment.deploy` is
 `ALLOW` for development/staging and `REQUIRE_APPROVAL` for production;
 `deployment.rollback` mirrors that; and `deployment.emergency_rollback`
@@ -1618,7 +1618,7 @@ Phase 7 is one new package (`operations/`, parallel to `cicd/`/
 `rescan`/`escalate` shape `DependencyCVEAgent`/`SecurityAgent`/
 `InfrastructureIntelligenceAgent` already use), one new tool
 (`operations`, alongside `git`/`filesystem`/`shell`/`github`/
-`deployment`), `operations.*` rules added to `config/policy.yaml`, twelve
+`deployment`), `operations.*` rules added to `src/aep/config/policy.yaml`, twelve
 new roadmap capabilities, three new CLI surfaces, and 51 new tests — not a
 redesign of anything that existed before.
 
@@ -1714,7 +1714,7 @@ allow > default_posture`, unmodified) — this module never builds a policy
 action string from incident/event/log content; `evaluate_with_policy()`
 is the one call site, and every literal it passes is a plain string
 constant from the catalog above, asserted by
-`test_operations_threat_model.py`. `config/policy.yaml` gained
+`test_operations_threat_model.py`. `src/aep/config/policy.yaml` gained
 `operations.*` rules mirroring Phase 6's `deployment.*` shape exactly:
 destructive actions (delete production data, disable a security control,
 bypass policy, force-push a protected branch, any action without a
@@ -2003,7 +2003,7 @@ runtime-recover` round out Part 12's status/workers/jobs/recover surface.
 never this repo's real `aep_state.db`.
 
 **Policy/safety (Part 13).** Exactly two new ALLOW actions were added to
-`config/policy.yaml`: `runtime.scheduled_scan` (read-only discovery) and
+`src/aep/config/policy.yaml`: `runtime.scheduled_scan` (read-only discovery) and
 `runtime.worker_restart`; one new DENY action,
 `runtime.autonomous_destructive_action`, added to the *existing* `deny:`
 bucket (not a second `deny:` key - YAML would silently let a duplicate
@@ -2048,7 +2048,7 @@ filesystem; there is no fake Kubernetes success anywhere in `runtime/`.
 
 **Bugs found and fixed while building Phase 8.** While drafting this
 addendum's policy changes, an initial edit added a *second* top-level
-`deny:` key to `config/policy.yaml` to hold the new
+`deny:` key to `src/aep/config/policy.yaml` to hold the new
 `runtime.autonomous_destructive_action` rule. YAML documents cannot have
 two mappings with the same key - `yaml.safe_load` silently keeps only the
 second one, which would have deleted every Phase 1–7 deny rule (including
@@ -2088,7 +2088,7 @@ before writing any schema).**
 
 | Existing state | Maps to | Reasoning |
 |---|---|---|
-| `ProjectConfig` (dataclass, never persisted by StateStore) | `projects` table | Generalizes the concept the CLI already threads through everywhere; was previously read from `config/policy.yaml`/CLI args each run rather than stored. |
+| `ProjectConfig` (dataclass, never persisted by StateStore) | `projects` table | Generalizes the concept the CLI already threads through everywhere; was previously read from `src/aep/config/policy.yaml`/CLI args each run rather than stored. |
 | `tasks` (SQLite) | `tasks` table | Near 1:1 - columns renamed to native types (jsonb for `dependencies`/`evidence`/`artifacts`/`payload`, real FK to `projects`). |
 | `events` (SQLite) | `events` table | 1:1, kept as ONE table (not split into "task_events" + "audit_events") - Phase 1-8 never distinguished the two; `task_id` is nullable on the same row today and splitting would only force a UNION for "all events in project X." |
 | `failure_counters` (SQLite) | **Not migrated.** | This is inherently a fast, single-process circuit-breaker counter keyed by (project_id, task_type) that every runtime worker on ONE machine shares via the SQLite file today. It is ephemeral operational state, not a durable business record - moving it to a shared Postgres table buys nothing (it would need the exact same read-modify-write-under-lock pattern) and Stage A explicitly does not touch Phase 8's tested circuit-breaker mechanics. If a future multi-node runtime needs a shared circuit breaker, that is a Stage B/C+ runtime concern, not a Stage A schema concern. |
@@ -2140,7 +2140,7 @@ writing policies against a scope column that is currently always NULL -
 deferred explicitly to whichever of Stage B/C/D introduces multi-tenancy,
 rather than faked with policies that can't yet be exercised.
 
-**Migration workflow.** `supabase/migrations/0001_initial_schema.sql` is
+**Migration workflow.** `src/aep/migrations_sql/0001_initial_schema.sql` is
 the first (and, as of Stage A, only) migration - see its own header
 comment for the full purpose/affected-tables/backward-compatibility/
 rollback notes. `src/aep/db/migrations.py` is the runner: `status()`,
@@ -2152,7 +2152,7 @@ migration files - MATCH/DRIFT with specifics, never a silent "consistent"
 without actually querying the database).
 
 **Schema.** See `docs/DATABASE.md` for the full table list and
-`supabase/migrations/0001_initial_schema.sql` for the authoritative,
+`src/aep/migrations_sql/0001_initial_schema.sql` for the authoritative,
 heavily-commented DDL. Design conventions used throughout: `uuid` primary
 keys minted in Python (`uuid.uuid4()`, matching the existing
 `str(uuid.uuid4())` convention already used everywhere in
@@ -2202,7 +2202,7 @@ predates this discipline and is a different database entirely - Stage A
 does not retroactively police Phase 1-8's SQLite path) for `CREATE
 TABLE`/`ALTER TABLE`/`DROP TABLE`/`CREATE INDEX` literals and fails if any
 are found outside the migration mechanism. `database.schema_change` was
-added to `config/policy.yaml`'s `require_approval:` bucket (additive,
+added to `src/aep/config/policy.yaml`'s `require_approval:` bucket (additive,
 fixed literal) so any future agent-facing workflow that wraps migration
 application is gated the same way every other structurally significant
 action already is.
@@ -2784,7 +2784,7 @@ raw SQL and no AI-provider dependency.
 
 ### Persistence: migration 0006 (Parts 3-4)
 
-`supabase/migrations/0006_skill_registry.sql` adds exactly three tables:
+`src/aep/migrations_sql/0006_skill_registry.sql` adds exactly three tables:
 `skills` (stable identity, `skill_id text PRIMARY KEY` - a short
 human-chosen slug, following the same reasoning `runtime_workers.worker_id`/
 `runtime_schedules.job_id` already established in 0001 rather than
@@ -3057,7 +3057,7 @@ and `bootstrap.py`, both additively.
   `Orchestrator.skill_registry` `None`, making the gate a guaranteed
   no-op - every pre-Stage-C caller (all 638 baseline tests) keeps
   behaving identically.
-- **`src/aep/demo.py` + `demo_project_template/`** - the real,
+- **`src/aep/demo.py` + `src/aep/demo_template/`** - the real,
   reproducible demo flow, and **`src/aep/progress/demo_readiness.py`** -
   a deterministic checklist (not a percentage).
 - **CLI**: `aep providers`, `aep demo run [--scenario happy|ambiguous]
@@ -3159,7 +3159,7 @@ health checks, Python logging, and gateway-forwarded prompts.
 
 ### The demo E2E flow (`aep demo run`)
 
-1. Copies `demo_project_template/` into a fresh temp dir and makes it a
+1. Copies `src/aep/demo_template/` into a fresh temp dir and makes it a
    real git repo (never mutates the template in place).
 2. Seeds the 18 canonical skills into a (`fake`-backend, in-process)
    `SkillRegistry` and wires it into the orchestrator - `security_scan`
@@ -3398,7 +3398,7 @@ Factors and weights (sum to exactly 1.0, asserted at import time):
 | recurrence          | 0.15   | count of ALL findings (any status) sharing `(project_id, category)`, capped at 5 occurrences |
 | age                 | 0.10   | days since `FindingRecord.discovered_at`, capped at 90 days |
 | blast_radius        | 0.10   | count of other OPEN findings on the same `(project_id, resource)` (or same project if no resource) - a simple heuristic, not a real dependency graph, per spec |
-| sla                 | 0.00   | **explicit no-op.** Neither `FindingRecord` nor `ProjectRecord` (nor any migration) has an SLA/due-date column - see `supabase/migrations/0001_initial_schema.sql`. Rather than invent one, the factor is included at weight 0 so its absence is visible in every breakdown instead of silently missing. `tests/test_prioritization.py::test_sla_factor_is_an_explicit_documented_no_op` asserts this. |
+| sla                 | 0.00   | **explicit no-op.** Neither `FindingRecord` nor `ProjectRecord` (nor any migration) has an SLA/due-date column - see `src/aep/migrations_sql/0001_initial_schema.sql`. Rather than invent one, the factor is included at weight 0 so its absence is visible in every breakdown instead of silently missing. `tests/test_prioritization.py::test_sla_factor_is_an_explicit_documented_no_op` asserts this. |
 
 Exposure: `aep prioritize [--project ID] [--json]` (CLI,
 `src/aep/cli.py::cmd_prioritize`/`_build_prioritize_payload`) and `GET
@@ -3932,7 +3932,7 @@ reimplementing them:
   `compute_health_signals()` `HealthSignal` of that same `signal_id`.
 - `REPEATED_SUPPRESSED_FINDINGS` - real findings with
   `status == 'SUPPRESSED'` (the actual DB check-constraint value, see
-  `supabase/migrations/0001_initial_schema.sql`), >= 2 per project.
+  `src/aep/migrations_sql/0001_initial_schema.sql`), >= 2 per project.
 - `STALE_RECURRING_DEPENDENCY` - a pass-through of Wave 7's
   `forecast_deployment_risk()` `DEPENDENCY_RECURRENCE` forecasts, for any
   forecast whose trend is not `UNKNOWN`.
@@ -4059,7 +4059,7 @@ run/build/test-failure records anywhere:
 - `src/aep/cicd/failure_classification.py` - `classify_ci_failure()`
   classifies a single failure's job/step data in the moment; it does not
   store a failure fingerprint anywhere for later clustering.
-- `supabase/migrations/*.sql` - no `ci_runs`/`ci_jobs`/`build_failures`
+- `src/aep/migrations_sql/*.sql` - no `ci_runs`/`ci_jobs`/`build_failures`
   table exists in any migration.
 - `incident_patterns.py`, `deployment_risk.py`, and `architecture.py`
   already independently documented this exact same gap (`CI_FAILURE_CLUSTER`
@@ -4116,7 +4116,7 @@ anywhere:
 - No AWS Cost Explorer / Azure Cost Management / GCP Billing / OCI Usage
   API client exists anywhere in `src/aep/` (grepped the whole tree).
 - No `cost`/`billing`/`usage` table exists in any
-  `supabase/migrations/*.sql`.
+  `src/aep/migrations_sql/*.sql`.
 - No cloud credentials are configured in this sandbox at all.
 
 **Conclusion: no real cost/resource-usage data is persisted or reachable.**

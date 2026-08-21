@@ -33,10 +33,11 @@ pytestmark = pytest.mark.skipif(
 
 
 def _dsn_for_schema(schema: str) -> str:
-    return (
-        "host=localhost port=5432 user=aep password=aep_local_dev_only dbname=aep_platform "
-        f"options='-c search_path={schema},public'"
-    )
+    # Resolve via the shared helper instead of hardcoding a
+    # developer-installed Postgres on 5432 (which also produced an
+    # invalid DSN once the resolved value became a URI).
+    from db_pg_helper import dsn_with_schema
+    return dsn_with_schema(schema)
 
 
 @pytest.fixture
@@ -67,7 +68,7 @@ def pg_pool(pg_dsn):
 
 def test_project_repository_real_postgres_roundtrip(pg_pool):
     repo = PostgresProjectRepository(pg_pool)
-    p = ProjectRecord(id=new_id(), name="real-demo", repo_path="/tmp/demo", policy_path="config/policy.yaml")
+    p = ProjectRecord(id=new_id(), name="real-demo", repo_path="/tmp/demo", policy_path="src/aep/config/policy.yaml")
     repo.save(p)
     fetched = repo.get(p.id)
     assert fetched is not None

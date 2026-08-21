@@ -12,7 +12,7 @@ keep additions to it just as short.
    something that already exists (a second routing table, a second
    skill resolver, a second state store)?
 3. **db_persistence_risk** - any schema change outside
-   `supabase/migrations/000N_*.sql`? Any hand-edit of an existing
+   `src/aep/migrations_sql/000N_*.sql`? Any hand-edit of an existing
    migration? Any manual `ALTER`/`CREATE`/`DROP` bypassing the migration
    runner?
 4. **security_risk** - any credential/secret value (not just a var name)

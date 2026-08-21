@@ -1,5 +1,5 @@
 """Infrastructure policy gates (Phase 5 Part 14/16) - the EXISTING
-PolicyEngine and config/policy.yaml, extended. No new policy mechanism."""
+PolicyEngine and src/aep/config/policy.yaml, extended. No new policy mechanism."""
 from __future__ import annotations
 
 from aep.models import PolicyDecisionType
@@ -25,7 +25,7 @@ def test_production_network_modification_requires_approval(policy_path):
 
 
 def test_non_production_iam_falls_through_to_deny_which_is_stricter(policy_path):
-    """Deliberate asymmetry, documented in config/policy.yaml: production
+    """Deliberate asymmetry, documented in src/aep/config/policy.yaml: production
     is called out explicitly because Part 14 names it; every other
     environment matches no rule and hits deny-by-default."""
     engine = PolicyEngine.from_yaml(policy_path)

@@ -5,7 +5,7 @@ capability procedure is published under. A `SkillVersion` is one immutable,
 published snapshot of that procedure's content. Publishing a NEW version
 never mutates an existing `SkillVersion` row - see `SkillRegistry.publish`
 and the DB-level immutability trigger in
-`supabase/migrations/0006_skill_registry.sql`.
+`src/aep/migrations_sql/0006_skill_registry.sql`.
 
 These are plain dataclasses with zero AI-provider dependency - a skill is
 declarative platform configuration, not a prompt template and not

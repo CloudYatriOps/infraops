@@ -6,7 +6,7 @@ from aep.policy import PolicyEngine
 
 
 def _policy():
-    return PolicyEngine.from_yaml("config/policy.yaml")
+    return PolicyEngine.from_yaml("src/aep/config/policy.yaml")
 
 
 def test_readonly_actions_are_allowed():

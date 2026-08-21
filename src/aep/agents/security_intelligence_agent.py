@@ -18,7 +18,7 @@ is actually gone. Nothing here trusts a remediation just because it
 "should" fix the finding.
 
 Severity -> action mapping (Part 8, evaluated via the *existing*
-PolicyEngine/config/policy.yaml - no new policy mechanism):
+PolicyEngine/src/aep/config/policy.yaml - no new policy mechanism):
   - CRITICAL: policy DENY -> always escalated to a human, even when this
     module could technically build a safe mechanical fix. Never
     auto-remediated, which is how "automatically block merge/deployment"

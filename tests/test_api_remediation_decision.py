@@ -11,7 +11,8 @@ import pytest
 
 from tests.db_pg_helper import local_postgres_available
 
-os.environ.setdefault("AEP_PG_PASSWORD", "aep_local_dev_only")
+# (AEP_PG_PASSWORD no longer set here: setting any AEP_PG_* var opts OUT
+# of AEP's zero-config embedded local PostgreSQL - see tests/conftest.py.)
 
 pytestmark = pytest.mark.skipif(not local_postgres_available(),
                                  reason="local Postgres not reachable")
@@ -52,7 +53,7 @@ def test_remediation_decision_endpoint_matches_direct_call(dev_client):
 
     all_findings = [f for f in finding_repo.list(None, None) if f.project_id == p1]
     try:
-        policy = PolicyEngine.from_yaml("config/policy.yaml")
+        policy = PolicyEngine.from_yaml("src/aep/config/policy.yaml")
     except Exception:
         policy = None
     direct = classify_remediation_batch(all_findings, finding_repo, policy=policy)

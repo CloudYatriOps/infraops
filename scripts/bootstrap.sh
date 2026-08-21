@@ -6,6 +6,11 @@
 # and tells you how to fix it if not.
 set -euo pipefail
 
+# Interpreter to use. A bare `python3` is NOT safe to assume: on Windows
+# it often resolves to a stub/different install with none of AEP's
+# dependencies. Callers (and the test suite) can pass their own.
+: "${PYTHON_BIN:=python3}"
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -28,17 +33,24 @@ else
     pip install -e ".[dev,api]"
 fi
 
-echo "== 2/5: checking AEP_PG_PASSWORD / AEP_DB_BACKEND =="
+echo "== 2/5: checking database configuration =="
 : "${AEP_DB_BACKEND:=postgres}"
-if [ "$AEP_DB_BACKEND" = "postgres" ] && [ -z "${AEP_PG_PASSWORD:-}" ]; then
-    echo "AEP_PG_PASSWORD is not set and AEP_DB_BACKEND=postgres (the default)."
-    echo "Set it before running anything that touches the default backend, e.g.:"
-    echo "  export AEP_PG_PASSWORD=aep_local_dev_only   # matches docs/DATABASE.md's local dev convention"
-    exit 1
-fi
+# AEP_PG_PASSWORD is NO LONGER required: with no AEP_PG_*/AEP_POSTGRES_DSN
+# set, AEP provisions and manages its own embedded local PostgreSQL
+# (src/aep/db/local_postgres.py). Setting any of those vars opts into an
+# operator-managed Postgres instead, which is what the reachability check
+# below then verifies.
 echo "AEP_DB_BACKEND=$AEP_DB_BACKEND"
+if [ -z "${AEP_POSTGRES_DSN:-}${AEP_PG_HOST:-}${AEP_PG_PORT:-}${AEP_PG_USER:-}${AEP_PG_PASSWORD:-}${AEP_PG_DBNAME:-}" ]; then
+    echo "No AEP_PG_*/AEP_POSTGRES_DSN set - using AEP's own embedded local PostgreSQL."
+    echo "Nothing to configure; skipping the external-Postgres reachability check."
+    SKIP_PG_REACHABILITY=1
+fi
 
 echo "== 3/5: checking PostgreSQL is reachable =="
+if [ -n "${SKIP_PG_REACHABILITY:-}" ]; then
+    echo "skipped (embedded local PostgreSQL)"
+else
 PGHOST="${AEP_PG_HOST:-localhost}"
 PGPORT="${AEP_PG_PORT:-5432}"
 PGUSER="${AEP_PG_USER:-aep}"
@@ -55,7 +67,7 @@ if command -v pg_isready >/dev/null 2>&1; then
     fi
 else
     echo "pg_isready not found; falling back to a direct python connection check."
-    python3 - <<PYEOF
+    "$PYTHON_BIN" - <<PYEOF
 import os, sys
 sys.path.insert(0, "src")
 try:
@@ -69,12 +81,13 @@ except Exception as exc:
 PYEOF
 fi
 echo "PostgreSQL is reachable."
+fi
 
 echo "== 4/5: running pending migrations =="
 if [ "$CHECK_ONLY" = "1" ]; then
     echo "(--check-only: skipped - no migrations applied)"
 else
-python3 - <<'PYEOF'
+"$PYTHON_BIN" - <<'PYEOF'
 import sys
 sys.path.insert(0, "src")
 import psycopg2
@@ -92,8 +105,8 @@ echo "== 5/5: sanity-checking the CLI entrypoint =="
 # There is no installed `aep` console-script entry point (checked
 # pyproject.toml - none declared); the CLI is always invoked as
 # `python -m aep.cli`, matching every example in README.md/docs/DEMO.md.
-python3 -m aep.cli --help >/dev/null
-echo "python3 -m aep.cli --help ran successfully."
+"$PYTHON_BIN" -m aep.cli --help >/dev/null
+echo "$PYTHON_BIN -m aep.cli --help ran successfully."
 
 cat <<'EOF'
 

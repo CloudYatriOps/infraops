@@ -2,7 +2,7 @@
 
 **Scope warning:** this document describes ONLY what Phase 9 Stage A
 actually built - a single PostgreSQL + pgvector table
-(`memory_records`, see `supabase/migrations/0001_initial_schema.sql`)
+(`memory_records`, see `src/aep/migrations_sql/0001_initial_schema.sql`)
 and the repository code in `src/aep/db/repositories.py` /
 `src/aep/db/postgres.py` / `src/aep/db/fake.py`. It does not describe a
 fully governed memory subsystem - that is later-stage work (Stage
@@ -17,7 +17,7 @@ of this table). Do not read anything below as more complete than it is.
   `ARCHITECTURAL_MEMORY`, `USER_ORG_MEMORY`. One table rather than six,
   because every class needs the same operations (structured lookup,
   semantic ANN search, exact fingerprint lookup, supersession, advisory
-  retrieval) - see `supabase/migrations/0001_initial_schema.sql`'s
+  retrieval) - see `src/aep/migrations_sql/0001_initial_schema.sql`'s
   comment for the full justification.
 - Structured metadata: `content jsonb`.
 - Semantic retrieval: `embedding vector(8)` (pgvector), with a real

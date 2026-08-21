@@ -1,4 +1,4 @@
-"""Migration runner for the Stage A PostgreSQL schema (supabase/migrations/).
+"""Migration runner for the Stage A PostgreSQL schema (src/aep/migrations_sql/).
 
 This is the ONLY place in the platform allowed to issue schema-mutating
 DDL (`CREATE TABLE`/`ALTER TABLE`/`DROP TABLE`/`CREATE INDEX`) against the
@@ -42,10 +42,15 @@ from typing import Optional
 # `pip install` of the built wheel does not carry `supabase/` along (it is
 # outside the `aep` package tree), so this falls through to a path that
 # doesn't exist. AEP_MIGRATIONS_DIR is an explicit escape hatch for that
-# case; packaging `supabase/migrations/*.sql` inside the wheel itself is
+# case; packaging `src/aep/migrations_sql/*.sql` inside the wheel itself is
 # tracked as a real, not-yet-fixed release gap (see BUGFIX.md BUG-0014).
+# BUG-0014 closed: the .sql files now live INSIDE the package
+# (`src/aep/migrations_sql/`), so they ship in the wheel and resolve
+# identically from a source checkout and a `pip install`. The env var
+# stays as an operator escape hatch, not as the thing that makes a wheel
+# install work.
 MIGRATIONS_DIR = Path(os.environ.get("AEP_MIGRATIONS_DIR") or (
-    Path(__file__).resolve().parent.parent.parent.parent / "supabase" / "migrations"
+    Path(__file__).resolve().parent.parent / "migrations_sql"
 ))
 
 

@@ -5,7 +5,7 @@ if eligible) -> durable evidence. Every step's result is recorded in
 `Evidence` and in a `DeploymentRecord` (Part 13), and every policy check
 uses a FIXED action-string literal (`deployment.deploy` /
 `deployment.rollback` / `deployment.emergency_rollback` -
-`cicd/environment.py`/`config/policy.yaml`) - never a string built from
+`cicd/environment.py`/`src/aep/config/policy.yaml`) - never a string built from
 the environment name, commit sha, or any other runtime value (Part 11/20).
 
 This agent never decides "should this deploy" on its own judgement - it

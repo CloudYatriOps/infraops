@@ -24,7 +24,7 @@ class DeploymentEnvironment(str, Enum):
 
 
 # Policy action strings this environment model expects `PolicyEngine` to
-# know about (declared in config/policy.yaml) - always fixed literals
+# know about (declared in src/aep/config/policy.yaml) - always fixed literals
 # wherever they are passed to `ctx.policy.evaluate()`, per Part 11/20.
 DEPLOY_ACTION = "deployment.deploy"
 ROLLBACK_ACTION = "deployment.rollback"

@@ -11,7 +11,8 @@ import pytest
 
 from tests.db_pg_helper import local_postgres_available
 
-os.environ.setdefault("AEP_PG_PASSWORD", "aep_local_dev_only")
+# (AEP_PG_PASSWORD no longer set here: setting any AEP_PG_* var opts OUT
+# of AEP's zero-config embedded local PostgreSQL - see tests/conftest.py.)
 
 pytestmark = pytest.mark.skipif(not local_postgres_available(),
                                  reason="local Postgres not reachable")

@@ -2,7 +2,7 @@
 docs/DEMO.md, ARCHITECTURE.md Section 33). Two entry points:
 
   * `run_demo(...)` - the "happy path" scenario: register a project
-    against `demo_project_template/`, resolve required skills, validate
+    against `src/aep/demo_template/`, resolve required skills, validate
     policy, route an AI call through `AIGateway`, run the real security
     scanner (blocked on the fixture's placeholder secret), fix it, re-scan
     clean, run the real fix-bug graph, persist everything to PostgreSQL,
@@ -36,10 +36,10 @@ from .skills.definitions import seed_canonical_skills
 from .skills.factory import build_skill_registry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-# BUG-0014: same gap as MIGRATIONS_DIR - only resolves from a source
-# checkout, not a `pip install` of the built wheel. Escape hatch env var
-# for the same reason; see BUGFIX.md BUG-0014.
-DEMO_TEMPLATE_DIR = Path(os.environ.get("AEP_DEMO_TEMPLATE_DIR") or (REPO_ROOT / "demo_project_template"))
+# BUG-0014 closed: fixture now lives inside the package, so it ships in
+# the wheel. Env var retained as an operator escape hatch only.
+DEMO_TEMPLATE_DIR = Path(os.environ.get("AEP_DEMO_TEMPLATE_DIR")
+                          or (Path(__file__).resolve().parent / "demo_template"))
 
 FIXED_APP_PY = "def add(a, b):\n    return a + b\n"
 
@@ -85,7 +85,7 @@ def _init_git_repo(path: Path) -> None:
 
 
 def _materialize_demo_repo(dest_root: Path) -> Path:
-    """Copies the disposable `demo_project_template/` fixture into a real
+    """Copies the disposable `src/aep/demo_template/` fixture into a real
     temp directory and turns it into a real git repo. Never mutates the
     template in place.
 
@@ -126,11 +126,9 @@ def run_demo(work_dir: Optional[str] = None, policy_path: Optional[str] = None,
     tmp_root = Path(work_dir) if work_dir else Path("/tmp/aep_demo_run")
     tmp_root.mkdir(parents=True, exist_ok=True)
     repo = _materialize_demo_repo(tmp_root)
-    result.steps.append(f"materialized demo_project_template/ into real git repo at {repo}")
+    result.steps.append(f"materialized src/aep/demo_template/ into real git repo at {repo}")
 
-    # Same BUG-0014 gap as MIGRATIONS_DIR/DEMO_TEMPLATE_DIR - REPO_ROOT
-    # doesn't exist for a wheel install.
-    policy = policy_path or os.environ.get("AEP_DEMO_POLICY_PATH") or str(REPO_ROOT / "config" / "policy.yaml")
+    policy = policy_path or os.environ.get("AEP_DEMO_POLICY_PATH") or str(Path(__file__).resolve().parent / "config" / "policy.yaml")
 
     skill_registry = build_skill_registry(backend="fake", policy_path=policy)
     seed_canonical_skills(skill_registry)
@@ -156,7 +154,7 @@ def run_demo(work_dir: Optional[str] = None, policy_path: Optional[str] = None,
         mock_canned={"code_fix": FIXED_APP_PY},
         skill_registry=skill_registry,
     )
-    result.steps.append(f"persistence: {db_backend} (which-policy-checks: config/policy.yaml, "
+    result.steps.append(f"persistence: {db_backend} (which-policy-checks: src/aep/config/policy.yaml, "
                          f"which-provider: {provider_id})")
 
     task_ids = orch.plan_fix_bug(

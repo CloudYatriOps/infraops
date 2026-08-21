@@ -151,7 +151,7 @@ def build_remediation_plan(report: DriftReport) -> list[str]:
     plan.append(
         f"{len(plan) + 1}. NOTE: nothing above was executed. `terraform apply` and any live "
         f"infrastructure mutation are REQUIRE_APPROVAL/DENY under this platform's policy "
-        f"(config/policy.yaml) and are out of scope for Phase 5."
+        f"(src/aep/config/policy.yaml) and are out of scope for Phase 5."
     )
     return plan
 

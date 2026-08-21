@@ -3,7 +3,11 @@
 // route. Set VITE_API_BASE / VITE_API_KEY via ui/.env.local (see
 // ui/README.md); with the API running under AEP_API_DEV_MODE=1 no key is
 // needed for local development.
-const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000'
+// `??` not `||`: an EMPTY VITE_API_BASE is meaningful - it means
+// same-origin relative URLs, which is what the packaged build served by
+// the Flask backend uses. Only an unset value falls back to the dev
+// server's cross-origin default.
+const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:5000'
 const API_KEY = import.meta.env.VITE_API_KEY || ''
 
 async function request(path: string, options: RequestInit = {}) {

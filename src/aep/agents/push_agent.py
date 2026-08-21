@@ -6,7 +6,7 @@ orchestrator's existing generic policy gate (Task.payload["policy_action"] /
 ARCHITECTURE.md §8) rather than a hand-rolled check inside the agent: the
 planner that builds this task (src/aep/github/planner.py) always sets
 policy_action="github.push" with the branch name and force flag in context,
-so `config/policy.yaml`'s existing rule shape (deny push to protected
+so `src/aep/config/policy.yaml`'s existing rule shape (deny push to protected
 branches, require approval for force-push) is enforced *before* this agent
 ever runs - identical mechanism already covered by
 tests/test_end_to_end_demo.py::test_direct_push_to_main_is_denied_by_policy_gate.

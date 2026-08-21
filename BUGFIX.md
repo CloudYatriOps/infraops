@@ -1,5 +1,94 @@
 # Bug Fixes
 
+## BUG-0019: bare interpreter/binary names in production code ran against the WRONG Python
+
+- **Date:** 2026-08-21
+- **Component:** `src/aep/tools/shell_tool.py` (root cause), affecting `src/aep/agents/dependency_cve_agent.py`, `src/aep/dependency/planner.py`, `src/aep/infra/planner.py`, `src/aep/security/planner.py`.
+
+### Symptom
+Four production call sites build shell arguments starting with the
+literal `"python3"` (`python3 -m pip install ...` for dependency
+remediation, `python3 -m pytest -q` as the default `test_args` for three
+planners). `shell_tool` resolved that name against `PATH`. On Windows
+`python3` is typically either absent or the WindowsApps stub - a
+*different interpreter* with none of AEP's dependencies - so remediation
+installs and verification test runs silently executed against the wrong
+environment.
+
+### Impact
+Worse than a crash: `pip install` could install into an unrelated
+interpreter and `pytest` could run with none of the project's
+dependencies, while AEP recorded the result as genuine evidence. This is
+the same family as BUG-0012/BUG-0015 but in the product's verification
+path, where a wrong answer is recorded as fact.
+
+### Root cause
+`shell_tool._handler` resolved every allowlisted name uniformly through
+`PATH`. `PATH` is the right lookup for a real external tool (`git`,
+`npm`, `gitleaks`), but never for "the Python running AEP".
+
+### Fix
+`shell_tool._handler` now maps the logical name `"python3"` to
+`sys.executable` before executing, leaving all other binaries on the
+existing `shutil.which` PATH resolution. Fixed once in the single shared
+chokepoint rather than at the four call sites, so any future caller
+inherits it; `ALLOWED_BINARIES`' exact-name check is untouched (callers
+still pass `"python3"`).
+
+### Tests
+Full suite re-run after the change; `tests/test_dependency_*` and the
+demo's `run_tests` step exercise this path. Also caught two test-side
+variants of the same defect: `tests/test_dependency_{e2e_real,github_loop}.py`'s
+availability probes resolved `pip-audit` by bare name and so picked a
+*different, working* pip-audit than the scan itself used - making the
+skip guard say "available" while the real scan returned zero findings and
+the test failed misleadingly. Both probes now resolve identically to the
+scan path, so they skip honestly instead.
+
+### Lesson
+An allowlist of binary *names* is a security boundary and must stay
+name-based, but name-to-executable resolution is a separate concern - and
+"the interpreter running this process" is never a PATH lookup. Any probe
+that decides whether a tool is available must resolve that tool exactly
+the way the real code path will, or it is testing a different program.
+
+## BUG-0018 (CORRECTED, and now resolved): 4 dependency/deployment test failures - both original root-cause guesses were wrong
+
+- **Date:** 2026-08-21 (supersedes the 2026-08-20 entry below it)
+- **Component:** `tests/test_deployment_risk.py`, `tests/test_dependency_e2e_real.py`, `tests/test_dependency_github_loop.py`.
+
+### Correction
+The prior entry recorded these as "not investigated, suspected time-rot
+in `datetime.now()`-relative fixtures and/or upstream CVE data drift".
+Investigated properly this pass; **both guesses were wrong**, which is
+exactly why the entry is being corrected rather than quietly closed:
+
+1. `test_dependency_recurrence_immediate` - NOT time-rot. The fixture
+   created all three findings with the same `days_old`, so the three
+   `datetime.now()` calls returned an **identical** timestamp on Windows
+   (~15ms clock resolution, coarser than the loop is fast).
+   `recurrence_interval_days` is computed from *distinct* timestamps, so
+   it collapsed to `None`, and the `IMMEDIATE` classification (which
+   requires a computable interval <= 14 days) correctly degraded to
+   `NEAR_TERM`. Production logic was right; the fixture was
+   clock-resolution-dependent. Fixed by spacing the occurrences
+   (`days_old=i+1`), making the intent explicit rather than accidental.
+2. The 3 dependency tests - NOT upstream CVE drift. They are correctly
+   guarded by `skipif(not pip_audit_scanner.is_available(...))`, but the
+   guard's probe invoked `pip-audit` by bare name, which resolved to a
+   *different, working* pip-audit than the scan path used (see BUG-0019).
+   The guard therefore reported "available" while the actual scan
+   returned zero findings, producing a failure instead of a skip. Fixed
+   by resolving identically in both places; they now skip honestly on a
+   machine where pip-audit is genuinely non-functional.
+
+### Lesson
+Recording a *suspected* root cause without verifying it is a liability -
+both suspicions here were plausible, both were wrong, and either would
+have sent the next investigation down a dead end. A bug entry should
+either carry a verified cause or state plainly that the cause is unknown.
+
+
 ## BUG-0018 (found, NOT fixed this pass - documented per BUGFIX governance): 4 pre-existing test failures unrelated to this session's local-database work
 
 - **Date:** 2026-08-20
@@ -207,13 +296,13 @@ visibly crash.
 ### Symptom
 Both constants are computed as `Path(__file__).resolve().parent...parent`,
 walking up from the installed module's location to what is *assumed* to
-be the repo root, then appending `supabase/migrations` or
-`demo_project_template`. Built `aep-0.1.0-py3-none-any.whl`, installed it
+be the repo root, then appending `src/aep/migrations_sql` or
+`src/aep/demo_template`. Built `aep-0.1.0-py3-none-any.whl`, installed it
 into a brand-new venv with no source checkout present, and confirmed
 directly:
 ```
 from aep.db.migrations import MIGRATIONS_DIR
-MIGRATIONS_DIR         # .../site-packages/supabase/migrations
+MIGRATIONS_DIR         # .../site-packages/src/aep/migrations_sql
 MIGRATIONS_DIR.exists()  # False
 from aep.demo import DEMO_TEMPLATE_DIR
 DEMO_TEMPLATE_DIR.exists()  # False
@@ -228,14 +317,14 @@ Corrects an over-broad prior claim in this file/`handoff.md` that "clean
 venv installation produced a working `aep`" — that was true for
 `aep --help`/import, but migrations and the demo path were never
 independently re-verified from an actual wheel install until this pass.
-`supabase/migrations/` is referenced as "the single source of truth" in
+`src/aep/migrations_sql/` is referenced as "the single source of truth" in
 ~15 other files (`docs/DATABASE.md`, `ARCHITECTURE.md`, most of
 `src/aep/intelligence/*.py`); physically relocating it into `src/aep/` to
 make it wheel-packageable is a much larger, riskier change than this
 pass's scope justifies without explicit sign-off, so it is NOT done here.
 
 ### Root cause
-`supabase/migrations/` and `demo_project_template/` both live outside
+`src/aep/migrations_sql/` and `src/aep/demo_template/` both live outside
 `src/aep/` (the only tree `[tool.setuptools.packages.find]` packages into
 the wheel), so nothing ships them - a plain `pip install .` (no `-e`) has
 no way to find them relative to the installed module.
@@ -243,7 +332,7 @@ no way to find them relative to the installed module.
 ### Fix (partial, honestly scoped)
 Added `AEP_MIGRATIONS_DIR`/`AEP_DEMO_TEMPLATE_DIR`/`AEP_DEMO_POLICY_PATH`
 environment variable overrides (the third, `run_demo`'s default
-`config/policy.yaml` lookup, is the identical gap, found live when this
+`src/aep/config/policy.yaml` lookup, is the identical gap, found live when this
 fix was verified against an actual wheel install), so an operator
 installing the wheel can point them at wherever they've placed a copy of
 these directories (e.g. alongside a deployment). This does NOT make the
@@ -896,7 +985,7 @@ crashed with the exact `FileExistsError` above.
 `_materialize_demo_repo()` now removes any pre-existing `demo_project/`
 under `dest_root` (`shutil.rmtree`) before copying the template in —
 matching the "disposable fixture" framing already documented for this
-directory (never mutates `demo_project_template/` itself, only the
+directory (never mutates `src/aep/demo_template/` itself, only the
 per-run materialized copy).
 
 ### Files changed
@@ -1119,7 +1208,7 @@ with `discovered_at` 45 days in the past came back with a
 status, resource, description, confidence, false_positive, task_id,
 evidence`), so the column always falls back to its schema default
 (`discovered_at timestamptz NOT NULL DEFAULT now()`,
-`supabase/migrations/0001_initial_schema.sql`) regardless of what the
+`src/aep/migrations_sql/0001_initial_schema.sql`) regardless of what the
 caller set on the `FindingRecord` before calling `save()`.
 
 ### Impact / who is affected
@@ -1186,3 +1275,50 @@ schema default happened to produce. Once found, a bug of this shape
 a real downstream consumer (here, recurrence-interval math) depends on
 correctness, rather than accumulating "documented but unfixed"
 limitations indefinitely.
+
+## BUG-0020 (found, NOT fixed — disclosed): embedded PostgreSQL needs a manual data-dir wipe after an ungraceful kill
+
+- **Date:** 2026-08-21
+- **Component:** `src/aep/db/local_postgres.py` / the `pgserver` dependency's lifecycle.
+
+### Symptom
+Hard-killing `postgres.exe` (`taskkill /F`) while AEP's embedded server is
+running leaves stale postmaster state in the data directory. The next
+resolution then fails inside `pgserver` with
+`assert self._postmaster_info.status == 'ready'` (AssertionError) or a
+`psql ... returned non-zero exit status 2` / connection-refused, and does
+NOT self-heal on retry. Observed twice this session: once against the
+product data dir (recovered on a second `aep start`), once against the
+test data dir (did not recover — required deleting the directory).
+
+### Impact
+A user whose machine hard-crashes, or who kills the process tree, can end
+up with an AEP that will not start until the data directory is removed —
+which also discards their local history, the exact thing the local-first
+architecture promises to preserve. No data was actually lost in either
+observation here (the product data dir recovered on retry), but the
+failure mode is real and the recovery path is undocumented.
+
+### Root cause (not fully confirmed)
+Stale `postmaster.pid`/status metadata that `pgserver`'s
+`ensure_postgres_running` asserts on rather than recovers from. Whether
+the right fix belongs in AEP (detect-and-clean stale state before
+delegating) or upstream in `pgserver` was not determined.
+
+### Fix
+None this pass. Deliberately not "fixed" by having AEP delete a data
+directory automatically on a failed start — silently discarding a user's
+database to recover from a failed startup is far worse than failing
+loudly, and picking the safe recovery (clean only the stale pid/status
+metadata, never the data) needs more certainty about `pgserver`'s
+internals than this pass established.
+
+### Tests
+None — reproduced manually twice, not yet captured as an automated test.
+
+### Lesson
+An embedded database makes the product responsible for crash recovery
+that an externally-managed PostgreSQL service would have handled itself.
+"Works across a clean restart" (verified) is a weaker claim than
+"survives an unclean one" (not yet true), and the two must not be
+reported as the same guarantee.

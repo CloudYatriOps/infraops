@@ -21,11 +21,18 @@ dependencies = [
     # `requires-python`'s upper bound moved from unbounded to `<3.13` - a
     # real, currently-load-bearing constraint, not an arbitrary one.
     "pgserver>=0.1.4",
+    # The CEO demo's `run_tests` step runs a REAL pytest against the demo
+    # fixture repo (never a model claiming "tests passed" - see
+    # ARCHITECTURE.md Verification Philosophy). Verified live: without
+    # this, a wheel-only install reports `run_tests QUARANTINED` because
+    # the binary genuinely isn't there. It is a runtime dependency of a
+    # shipped product feature, not just test tooling.
+    "pytest>=8.0",
 ]
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.30.0"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0"]  # kept for explicitness; pytest is also a core dep (see above)
 # Real Python dependency/CVE scanning (Phase 3). Node.js scanning uses the
 # system `npm` binary directly and needs no Python package.
 dependency-scanning = ["pip-audit>=2.6"]
@@ -64,6 +71,16 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["aep*"]
+
+# BUG-0014 closure: the migration .sql files and the demo fixture were
+# previously OUTSIDE `src/aep/` (`supabase/migrations/`,
+# `demo_project_template/`), so `packages.find` never shipped them and a
+# wheel install could not locate them. They now live inside the package
+# and ship as package data. `ui_dist/` is the production Vite build, so a
+# normal install needs no Node/npm.
+[tool.setuptools.package-data]
+aep = ["ui_dist/**/*", "migrations_sql/*.sql", "demo_template/**/*", "demo_template/.gitignore", "config/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

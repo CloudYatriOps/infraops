@@ -14,7 +14,8 @@ import pytest
 
 from tests.db_pg_helper import local_postgres_available
 
-os.environ.setdefault("AEP_PG_PASSWORD", "aep_local_dev_only")
+# (AEP_PG_PASSWORD no longer set here: setting any AEP_PG_* var opts OUT
+# of AEP's zero-config embedded local PostgreSQL - see tests/conftest.py.)
 
 pytestmark = pytest.mark.skipif(not local_postgres_available(),
                                  reason="local Postgres not reachable")
@@ -32,7 +33,7 @@ def test_build_risk_payload_returns_items(tmp_path):
 
     pid = str(uuid.uuid4())
     project_repo.save(ProjectRecord(id=pid, name=f"cli-risk-{pid[:8]}", repo_path="/tmp/x",
-                                     policy_path="config/policy.yaml"))
+                                     policy_path="src/aep/config/policy.yaml"))
     finding_repo.save(FindingRecord(
         id=str(uuid.uuid4()), project_id=pid, category="secret", severity="critical",
         status="OPEN", description=f"issue {uuid.uuid4().hex}",

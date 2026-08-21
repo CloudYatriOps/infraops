@@ -1,5 +1,5 @@
 """Deployment/environment policy gates (Phase 6 Part 11) - the EXISTING
-PolicyEngine and config/policy.yaml, extended (same pattern as
+PolicyEngine and src/aep/config/policy.yaml, extended (same pattern as
 tests/test_infra_policy.py for Phase 5)."""
 from __future__ import annotations
 

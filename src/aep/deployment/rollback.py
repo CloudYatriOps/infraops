@@ -4,7 +4,7 @@ Decides ELIGIBILITY only - it never calls `provider.rollback()` itself,
 and it never invents an infrastructure-destroying action. The actual
 policy gate (production requires approval unless the narrow
 `deployment.emergency_rollback` carve-out matches - see
-`config/policy.yaml`) is evaluated by the caller (the deployment agent)
+`src/aep/config/policy.yaml`) is evaluated by the caller (the deployment agent)
 through the EXISTING `PolicyEngine`, with a fixed action-string literal;
 this module only classifies *why* a deployment failed and returns a
 recommendation, so the policy-evaluation call site stays the single place

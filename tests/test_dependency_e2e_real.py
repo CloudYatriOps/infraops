@@ -21,6 +21,7 @@ Skipped, not faked, if pip-audit genuinely isn't installed.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 
 import pytest
@@ -32,7 +33,14 @@ from aep.models import ProjectConfig, TaskStatus
 
 
 def _run_shell_probe(args, cwd=None, timeout=10):
-    proc = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    # Resolve the binary the SAME way the real scan path does - see the
+    # identical note in tests/test_dependency_github_loop.py::_probe.
+    resolved = shutil.which(args[0]) or args[0]
+    try:
+        proc = subprocess.run([resolved] + args[1:], cwd=cwd, capture_output=True,
+                               text=True, timeout=timeout)
+    except OSError as exc:
+        return {"ok": False, "stdout": "", "stderr": str(exc)}
     return {"ok": proc.returncode == 0, "stdout": proc.stdout, "stderr": proc.stderr}
 
 

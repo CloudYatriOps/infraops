@@ -129,7 +129,7 @@ def test_deployment_agent_never_builds_the_rollback_action_from_untrusted_conten
 
 
 def test_expected_deployment_policy_actions_are_present_in_config():
-    policy_source = (Path(__file__).resolve().parent.parent / "config" / "policy.yaml").read_text()
+    policy_source = (Path(__file__).resolve().parent.parent / "src" / "aep" / "config" / "policy.yaml").read_text()
     assert '"deployment.deploy"' in policy_source
     assert '"deployment.rollback"' in policy_source
     assert '"deployment.emergency_rollback"' in policy_source
@@ -160,7 +160,7 @@ def test_no_phase6_module_can_destroy_infrastructure():
 
 
 def test_phase5_destructive_deny_rules_are_untouched():
-    policy_source = (Path(__file__).resolve().parent.parent / "config" / "policy.yaml").read_text()
+    policy_source = (Path(__file__).resolve().parent.parent / "src" / "aep" / "config" / "policy.yaml").read_text()
     for action in ('"infra.resource_delete"', '"infra.terraform_destroy"',
                    '"infra.cluster_resource_delete"'):
         assert action in policy_source

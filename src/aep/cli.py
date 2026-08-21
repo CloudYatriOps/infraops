@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +28,10 @@ from .models import ProjectConfig, TaskStatus
 from .progress.calculator import compute_progress, record_phase_verified
 from .progress.deployability import compute_deployability
 from .db.factory import build_state_store
+
+# Packaged default: resolves identically from a source checkout and a
+# `pip install` of the wheel (BUG-0014 class). Never cwd-relative.
+DEFAULT_POLICY_PATH = str(Path(__file__).resolve().parent / "config" / "policy.yaml")
 from .state_store import StateStore
 from .skills.claude_adapter import project_to_claude_skill, render_claude_skill_markdown
 from .skills.definitions import seed_canonical_skills
@@ -917,6 +922,50 @@ def _build_providers_payload(args: argparse.Namespace) -> dict:
     return payload
 
 
+def cmd_start(args: argparse.Namespace) -> None:
+    """One-command local product start: local Postgres -> pgvector ->
+    migrations -> API -> packaged UI, then print the URL. Every step is
+    reported honestly; nothing is faked if it fails."""
+    import socket
+
+    from .db.local_postgres import get_data_dir
+    from .db.state_store_postgres import dsn_from_env
+
+    print("AEP starting...")
+    try:
+        dsn_from_env()  # provisions/reuses local Postgres + pgvector + migrations
+    except Exception as exc:  # noqa: BLE001 - reported, never swallowed
+        print(f"Local database: FAILED - {exc}")
+        return
+    print(f"Local database: READY  ({get_data_dir()})")
+    print("Migrations:     READY")
+
+    omniroute = _build_providers_payload(args)["omniroute"]
+    print(f"AI Provider:    {'READY' if omniroute['status'] == 'healthy' else 'NOT_CONFIGURED'}"
+          f"  ({omniroute['detail']})")
+
+    ui_dist = Path(__file__).resolve().parent / "ui_dist"
+    print(f"UI:             {'READY' if ui_dist.is_dir() else 'NOT_PACKAGED'}")
+
+    # Port 0 lets the OS pick a free port, so a second AEP (or anything
+    # already on the default) never collides. Bound to loopback only.
+    if args.port == 0:
+        with socket.socket() as probe:
+            probe.bind((args.host, 0))
+            args.port = probe.getsockname()[1]
+
+    # Loopback-only single-user local product: the packaged UI and the API
+    # share one origin, so the UI has no way to hold an API key. Dev-mode
+    # auth-bypass is what makes that work, and it prints its own loud
+    # warning at create_app() time. Not reachable off this machine.
+    os.environ.setdefault("AEP_API_DEV_MODE", "1")
+    from .api.app import create_app
+    app = create_app(db_backend=args.db_backend)
+
+    print(f"Runtime:        READY\n\nOpen: http://{args.host}:{args.port}\n")
+    app.run(host=args.host, port=args.port)
+
+
 def cmd_providers(args: argparse.Namespace) -> None:
     payload = _build_providers_payload(args)
     if args.json:
@@ -1296,7 +1345,7 @@ def _build_remediation_decision_payload(args: argparse.Namespace) -> dict:
         all_findings = [f for f in all_findings if f.project_id in wanted]
 
     try:
-        policy = PolicyEngine.from_yaml("config/policy.yaml")
+        policy = PolicyEngine.from_yaml(DEFAULT_POLICY_PATH)
     except Exception:
         policy = None
     skill_registry = None
@@ -1370,7 +1419,7 @@ def cmd_patterns(args: argparse.Namespace) -> None:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="aep")
     parser.add_argument("--db", default="aep_state.db")
-    parser.add_argument("--policy", default="config/policy.yaml")
+    parser.add_argument("--policy", default=DEFAULT_POLICY_PATH)
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_fix = sub.add_parser("run-fix-bug")
@@ -1688,7 +1737,17 @@ def main(argv=None) -> int:
     p_healthscore_cmd.add_argument("--json", action="store_true")
     p_healthscore_cmd.set_defaults(func=cmd_health_score)
 
-    args = parser.parse_args(argv)
+    p_start = sub.add_parser("start", help="one-command local product: local database + "
+                                            "migrations + API + packaged UI, then print the URL")
+    p_start.add_argument("--host", default="127.0.0.1")
+    p_start.add_argument("--port", type=int, default=0,
+                          help="0 (default) = let the OS pick a free port")
+    p_start.add_argument("--db-backend", default=None)
+    p_start.set_defaults(func=cmd_start)
+
+    # Bare `aep` with no subcommand IS the product's start command - the
+    # one-command UX. Any actual subcommand behaves exactly as before.
+    args = parser.parse_args(argv if argv is not None or len(sys.argv) > 1 else ["start"])
     args.func(args)
     return 0
 

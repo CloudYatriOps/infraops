@@ -137,7 +137,7 @@ computed live, never hardcoded — see `config/roadmap.yaml` and
    **UNAVAILABLE** in this sandbox — no `AI_BASE_URL` is configured here,
    same honest-block pattern as the Supabase network block. `aep
    providers` reports this plainly rather than faking a call.
-4. **Demo vertical slice** — `demo_project_template/` (a small, disposable,
+4. **Demo vertical slice** — `src/aep/demo_template/` (a small, disposable,
    project-independent fixture repo — not KarCrew/Kubedoctor/KAI
    specific — with one obvious fake hardcoded secret and one obvious
    security issue) + `src/aep/demo.py` (`run_demo()` — real end-to-end:
@@ -300,7 +300,7 @@ Continue this discipline for any future stage.
   SQLite (`state_store.py::StateStore`) is legacy/reference only, reachable
   only via explicit opt-in.
 - **Migrations only.** All schema changes go through
-  `supabase/migrations/000N_*.sql`, applied via `src/aep/db/migrations.py`.
+  `src/aep/migrations_sql/000N_*.sql`, applied via `src/aep/db/migrations.py`.
   Never hand-edit an existing migration file — a correction is always a
   NEW migration. Never manually `ALTER`/`CREATE`/`DROP` the live schema as
   a shortcut, even to fix drift. Stage C introduced no new persisted
@@ -798,7 +798,7 @@ substantively superseded by the new `phase10.cross_project_learning_intelligence
 investigated first - confirmed no CI run/build-failure-signature history
 is persisted anywhere in this schema (`src/aep/cicd/models.py`'s `CIRun`
 is an in-process dataclass, never written to a table; no `ci_runs` table
-in any `supabase/migrations/*.sql`). `analyze_ci_clusters()` always
+in any `src/aep/migrations_sql/*.sql`). `analyze_ci_clusters()` always
 returns `status="NOT_IMPLEMENTED"` with an explicit `reason` - no second
 CI engine built, no data invented. `aep intelligence ci` /
 `GET /intelligence/ci-clusters`.
@@ -1103,8 +1103,8 @@ BUG-0017, see BUGFIX.md for full detail on each):
   read-only blob objects can't be `shutil.rmtree`d without clearing the
   attribute first.
 - BUG-0014 (partial/honest, NOT fully closed): migrations
-  (`supabase/migrations/`) and the demo fixture
-  (`demo_project_template/`) are not packaged inside the wheel - only
+  (`src/aep/migrations_sql/`) and the demo fixture
+  (`src/aep/demo_template/`) are not packaged inside the wheel - only
   work from a source checkout. Added `AEP_MIGRATIONS_DIR`/
   `AEP_DEMO_TEMPLATE_DIR`/`AEP_DEMO_POLICY_PATH` env-var escape hatches
   and verified them working from a real wheel install end-to-end
@@ -1172,9 +1172,9 @@ command) and an `[project.scripts] aep = ...` verification pass.
 - Installing a local PostgreSQL server on this machine - a real
   infra/environment change, not a code fix; left for the user to decide
   since it's a system-level install.
-- Fully closing BUG-0014 (moving `supabase/migrations/`/
-  `demo_project_template/` under `src/aep/` so a wheel install needs zero
-  env vars) - `supabase/migrations/` is referenced as "the single source
+- Fully closing BUG-0014 (moving `src/aep/migrations_sql/`/
+  `src/aep/demo_template/` under `src/aep/` so a wheel install needs zero
+  env vars) - `src/aep/migrations_sql/` is referenced as "the single source
   of truth" in ~15 other files; relocating it is a real, separate,
   higher-blast-radius change.
 - Git push - not done without explicit confirmation per this session's
@@ -1218,7 +1218,7 @@ themselves - nothing was removed, just no longer the only path).
 **Supabase audit finding**: grepped the whole repo for
 `SUPABASE_URL`/`SUPABASE_DB`/`SUPABASE_KEY`/`supabase.co` in source and
 `.env.example` - zero hits. Every existing "supabase" reference in code/
-docs is the `supabase/migrations/` directory name (the SQL
+docs is the `src/aep/migrations_sql/` directory name (the SQL
 source-of-truth location, unrelated to where AEP actually connects at
 runtime) - there was never a hardcoded Supabase runtime dependency to
 remove. README/Quick Start rewritten around the zero-config flow;
@@ -1274,3 +1274,127 @@ section documenting this.
 substantial architecture addition (zero-config local database), not a
 roadmap-capability change - `config/roadmap.yaml` was not touched this
 pass.
+
+## Final local-product closure (this session): one-command UX + packaged UI + self-contained wheel
+
+Turned AEP from "a source checkout you run" into "a package you install".
+
+**What now works, verified live on this Windows machine from a wheel
+install with NO source checkout and NO environment variables set:**
+
+- `pip install <wheel>[api]` then `aep` - starts local Postgres, applies
+  migrations, serves the packaged UI, prints the URL. Verified.
+- `aep demo run` / `aep demo run --scenario ambiguous` - both pass from
+  the installed wheel. Verified.
+- Real browser (Claude Browser MCP, available this session unlike the
+  prior one): UI boots at the printed URL, Dashboard/Projects/project
+  detail/Runtime/Evidence all render, all three intelligence panels
+  (Engineering Health, Cost Intelligence, Remediation Decisions) show
+  honest `BLOCKED`/`UNKNOWN` states, **zero console errors**, all JS/CSS/
+  SVG assets serve with correct MIME types.
+
+**Changes that got it there:**
+
+1. **Packaged UI** (the biggest remaining product gap). Production Vite
+   build now lives at `src/aep/ui_dist/` and ships as package data;
+   `api/app.py` serves it from a catch-all route registered LAST so it
+   can never shadow an API route. `ui/src/api.ts` changed `||` to `??` on
+   one line so an empty `VITE_API_BASE` means same-origin (the packaged
+   build) while an unset one keeps the dev server's cross-origin default.
+   No UI redesign, no second frontend, no Node needed by end users.
+2. **One-command UX.** New `aep start`, and bare `aep` (no subcommand)
+   defaults to it. Picks a free port via port 0 so it never collides with
+   anything already running; binds loopback only.
+3. **BUG-0014 CLOSED properly.** Previously "partially fixed" with env-var
+   escape hatches. The three directories a wheel install could not find
+   are now inside the package: `supabase/migrations/` ->
+   `src/aep/migrations_sql/`, `demo_project_template/` ->
+   `src/aep/demo_template/`, `config/policy.yaml` ->
+   `src/aep/config/policy.yaml`. All references updated repo-wide. The
+   env vars remain as operator escape hatches, not as load-bearing
+   requirements.
+4. **pytest promoted to a core dependency.** The demo's `run_tests` step
+   runs a real pytest; without it a wheel-only install honestly reported
+   `run_tests QUARANTINED`. It is a runtime dependency of a shipped
+   feature, not just test tooling.
+5. **Python version decision: OPTION A.** AEP officially supports
+   **3.10-3.12**. `pgserver` publishes no 3.13 wheel (verified against
+   PyPI's file list); `requires-python = ">=3.10,<3.13"`. No silent
+   SQLite fallback, no "install Postgres yourself" fallback.
+
+**Persistence proofs (Parts 8/9), both run for real:**
+
+- **Restart:** created a project through the running API, then hard-killed
+  BOTH `aep.exe` and every `postgres.exe`, then started AEP again on a
+  different port - project still present. Genuine cold restart, not a
+  same-process cache.
+- **Upgrade:** built 0.1.1, `pip install --upgrade` over the installed
+  0.1.0, restarted - all data intact. A real N->N+1 upgrade, not a
+  simulation.
+- **Port safety:** the embedded server picks a fresh ephemeral port per
+  cold start (observed 54257/50361/65288/55161/64365 across runs) and
+  never touches 5432 or any other server on the machine.
+
+**Test-failure audit (Part 6) - every failure classified, not hand-waved.
+This is where most of the session went, and it changed the numbers a lot:**
+
+Baseline entering this pass was `700 passed / 121 skipped / 4 failed /
+6 errors`. Final: **800 passed / 28 skipped / 3 failed / 0 errors** (248s).
+
+The big shift is that ~93 tests that had been *silently skipping* now
+actually run. Root cause: `tests/conftest.py` (and 24 individual test
+modules) set `AEP_PG_PASSWORD` at import, which - since this session's
+zero-config work - is precisely the flag that opts OUT of the embedded
+database. The whole suite was being pointed at a `localhost:5432` server
+that does not exist on this machine, so every Postgres-backed test
+errored or skipped. Removed those, pointed the suite's DSN helpers at
+`dsn_from_env()`, and gave tests their own `AEP_DATA_DIR`. They now
+exercise the same zero-config database the product ships.
+
+Also fixed, all genuine defects rather than assertion-weakening:
+- `db_pg_helper` hardcoded a `host=... port=5432 password=aep_local_dev_only`
+  DSN; now resolves via `dsn_from_env()`, with a new `dsn_with_schema()`
+  that formats `search_path` correctly for BOTH keyword and URI DSNs
+  (appending ` options='...'` to a URI is a syntax error).
+- `test_db_startup_gate.py` shelled out to `service postgresql stop/start`
+  - meaningless against an embedded server and a hard `FileNotFoundError`
+  on Windows. Rewritten to point at a closed port, which tests the exact
+  same guarantee (raises `DatabaseUnavailableError`, never a silent
+  SQLite fallback) without a service manager.
+- `scripts/bootstrap.sh` still hard-failed unless `AEP_PG_PASSWORD` was
+  set, and invoked a bare `python3`. Now detects embedded mode and honors
+  `$PYTHON_BIN`.
+- BUG-0019 (new): bare `"python3"` in FOUR production call sites ran
+  remediation `pip install` and verification `pytest` against the wrong
+  interpreter on Windows. Root-caused in the single shared chokepoint
+  (`shell_tool`), not patched per-caller.
+- BUG-0018 CORRECTED: both previously-recorded suspected root causes were
+  wrong. Real causes were Windows clock resolution collapsing three
+  fixture timestamps into one, and a bare-name probe resolving to a
+  different pip-audit than the scan used. Both fixed; entry corrected
+  rather than quietly closed.
+
+**The 4 remaining failures are all genuine environment facts about THIS
+machine, not code defects:**
+
+| Test | Classification | Why |
+|---|---|---|
+| `test_cicd_github_actions::..._is_actually_blocked_from_this_sandbox` | TEST DEFECT (obsolete premise) | asserts `api.github.com` returns 403/000. This machine reaches it fine (200). The test encodes a *sandbox-specific fact* as an assertion; it is documenting a block that no longer exists here. Left as-is - "fixing" it means deciding what it should assert on an unblocked network, which is a scope call, not a bug fix. |
+| `test_deployment_kubernetes_provider` (x2) | ENVIRONMENT | assert `UNAVAILABLE` (no kubectl). This machine HAS `kubectl.exe` (Docker Desktop), so the provider correctly reports `BLOCKED` (binary present, no reachable cluster). The provider is behaving correctly; the test's premise is the original sandbox's. |
+
+**Also found, NOT fixed (disclosed) - now BUG-0020:** hard-killing
+`postgres.exe` leaves stale postmaster state that `pgserver` asserts on
+rather than recovers from. Hit twice: the product data dir recovered on a
+retry, the test data dir did not and needed a manual delete. Deliberately
+not "fixed" by auto-deleting a data directory on a failed start - silently
+discarding a user's database to recover from a bad startup is worse than
+failing loudly. Means the honest claim is "survives a clean restart"
+(verified), NOT "survives an unclean one".
+
+**Still not done (honest):** `aep doctor` does not exist (never has - the
+docs do not claim it either; `aep status`/`aep demo readiness` are the
+real equivalents). macOS/Linux verified only by PyPI's published wheel
+list, not by an actual install/run. `aep data reset` not implemented -
+uninstall/reinstall/upgrade all preserve data, which is the safe default,
+and deleting the data directory by hand is currently the documented way
+to discard it.

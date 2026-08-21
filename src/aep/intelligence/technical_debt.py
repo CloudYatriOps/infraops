@@ -16,7 +16,7 @@ repositories/inputs those waves already use:
   * Repeated security exceptions/suppressed findings - REAL: a project
     with >= `_SUPPRESSED_MIN_COUNT` findings whose `status == 'SUPPRESSED'`
     (the real DB check-constraint value - see
-    `supabase/migrations/0001_initial_schema.sql`, not invented).
+    `src/aep/migrations_sql/0001_initial_schema.sql`, not invented).
   * Stale/recurring dependency findings - REAL: reuses
     `deployment_risk.forecast_deployment_risk()`'s
     `DEPENDENCY_RECURRENCE` forecasts (not reimplemented) where the
@@ -27,7 +27,7 @@ repositories/inputs those waves already use:
 
 Deliberately NOT claimed: static-code TODO/FIXME scanning. No such
 scanner or finding-category exists anywhere in this repository (checked:
-`src/aep/security/`, `src/aep/cicd/`, `supabase/migrations/*.sql` finding
+`src/aep/security/`, `src/aep/cicd/`, `src/aep/migrations_sql/*.sql` finding
 `category` check-constraint) - this module marks that source
 UNAVAILABLE rather than inventing a scan.
 

@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from flask import Flask, g, jsonify, request
+from flask import Flask, g, jsonify, request, send_from_directory
 
 from ..db.factory import build_state_store
 from ..db.postgres import ConnectionPool, PostgresFindingRepository, PostgresProjectRepository
@@ -27,7 +27,7 @@ from ..cli import _build_providers_payload
 from . import auth
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-DEFAULT_POLICY_PATH = str(REPO_ROOT / "config" / "policy.yaml")
+DEFAULT_POLICY_PATH = str(Path(__file__).resolve().parent.parent / "config" / "policy.yaml")
 
 
 def create_app(db_backend: Optional[str] = None) -> Flask:
@@ -48,7 +48,7 @@ def create_app(db_backend: Optional[str] = None) -> Flask:
     app.config["AEP_DB_BACKEND"] = db_backend
 
     # `events.project_id` is a NOT NULL foreign key to `projects` (see
-    # supabase/migrations/0001_initial_schema.sql) - there is no "no
+    # src/aep/migrations_sql/0001_initial_schema.sql) - there is no "no
     # project" event. Org-wide/system requests (no project_scope) are
     # audit-logged against one fixed, auto-provisioned sentinel project
     # row instead of inventing a nullable-FK schema change for this.
@@ -168,7 +168,7 @@ def create_app(db_backend: Optional[str] = None) -> Flask:
             if not body.get(field_name):
                 return jsonify({"error": f"missing required field '{field_name}'"}), 400
         # `projects.id` is a native Postgres `uuid` column (see
-        # supabase/migrations/0001_initial_schema.sql) - always
+        # src/aep/migrations_sql/0001_initial_schema.sql) - always
         # server-generated, same convention Task/Event ids already use
         # (orchestrator.new_task_id()); a caller-chosen short slug is
         # carried as `name` instead, never forced into the uuid column.
@@ -547,7 +547,7 @@ def create_app(db_backend: Optional[str] = None) -> Flask:
             wanted = set(project_ids)
             all_findings = [f for f in all_findings if f.project_id in wanted]
         try:
-            policy = PolicyEngine.from_yaml("config/policy.yaml")
+            policy = PolicyEngine.from_yaml(DEFAULT_POLICY_PATH)
         except Exception:
             policy = None
         decisions = classify_remediation_batch(all_findings, finding_repo, policy=policy)
@@ -747,6 +747,37 @@ def create_app(db_backend: Optional[str] = None) -> Flask:
         deployability = compute_deployability(progress)
         return jsonify({"overall_percent": progress.overall_percent,
                         "deployability": deployability.state.value})
+
+    # ---- packaged UI -------------------------------------------------
+    # The production Vite build lives in `src/aep/ui_dist/` (package data,
+    # shipped in the wheel) so a normal `pip install` + `aep start` needs
+    # no Node/npm. Registered LAST so it can never shadow an API route:
+    # Flask matches in registration order, and `_serve_ui`'s catch-all
+    # only sees paths no API route above claimed. `ui/npm run dev` is
+    # unaffected (it talks to this same API cross-origin, as before).
+    ui_dist = Path(__file__).resolve().parent.parent / "ui_dist"
+
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    def _serve_ui(path: str):
+        if not ui_dist.is_dir():
+            return jsonify({"error": "packaged UI not built into this install "
+                                     "(src/aep/ui_dist missing)"}), 404
+        # Only ever serve a real file that resolves INSIDE ui_dist -
+        # never let a `..` path escape the asset directory.
+        if path:
+            candidate = (ui_dist / path).resolve()
+            if candidate.is_file() and candidate.is_relative_to(ui_dist):
+                return send_from_directory(ui_dist, path)
+            # A MISSING asset must 404, not silently fall through to
+            # index.html: a broken/mis-based build would otherwise serve
+            # HTML with a 200 for every .js/.css and look healthy to any
+            # status check (exactly how a real mis-built base path slipped
+            # through once during this release). Only non-asset routes get
+            # the SPA fallback.
+            if "." in Path(path).name:
+                return jsonify({"error": f"asset not found: {path}"}), 404
+        return send_from_directory(ui_dist, "index.html")
 
     return app
 

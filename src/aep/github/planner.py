@@ -28,7 +28,7 @@ def build_push_task(project_id: str, project_root: str, branch_name: str,
     (ARCHITECTURE.md §8): 'git.push' is DENIED for protected branches and
     REQUIRE_APPROVAL when force=True, evaluated centrally by the
     orchestrator *before* PushAgent ever runs - see push_agent.py's
-    docstring and config/policy.yaml."""
+    docstring and src/aep/config/policy.yaml."""
     payload = {
         "project_root": project_root, "branch_name": branch_name, "force": force,
         "policy_action": "github.push", "policy_context": {"branch": branch_name, "force": force},

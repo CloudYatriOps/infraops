@@ -11,7 +11,7 @@ from aep.db import migrations
 from aep.db.state_store_postgres import PostgresStateStore
 from aep.models import Event, Task, TaskStatus
 
-from db_pg_helper import LOCAL_DSN, drop_test_schema, fresh_test_schema_connection, local_postgres_available
+from db_pg_helper import dsn_with_schema, drop_test_schema, fresh_test_schema_connection, local_postgres_available
 
 pytestmark = pytest.mark.skipif(
     not local_postgres_available(),
@@ -25,7 +25,7 @@ def store():
     conn = fresh_test_schema_connection(schema)
     migrations.apply_pending(conn)
     conn.close()
-    dsn = f"{LOCAL_DSN} options='-c search_path={schema},public'"
+    dsn = dsn_with_schema(schema)
     s = PostgresStateStore(dsn=dsn)
     try:
         yield s
