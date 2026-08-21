@@ -1647,3 +1647,105 @@ a half-migrated UI would be worse than not starting. The existing UI is
 untouched and still works. Also not done: the fuller CLI help
 reorganisation (Part 9) beyond adding `scan` - existing commands are all
 intact and no automation was broken.
+
+## CLI UX + dark glassmorphism UI redesign (this session)
+
+Scope: CLI UX, UI redesign, Playwright/browser validation, docs. No
+database/PostgreSQL/scanner-architecture/intelligence/policy/skills/
+AI-Gateway changes except where a genuine CLI integration bug required it.
+
+**CLI (Part 1/2/3):** Added `aep scan <path>` as the CLI entry point (the
+Python module already existed from the prior session), plus NEW
+`aep security <path>` / `aep infra <path>` aliases, plus a curated `aep
+--help`/`aep -h` (Core/Advanced grouping, ~30 lines vs. the full ~45-command
+argparse dump) that fires ONLY for the bare top-level help - every
+`aep <command> --help` is byte-for-byte the same generated argparse help
+as before, pinned by a test. Zero commands removed or renamed.
+
+**Real integration bug found and fixed while wiring the aliases:** the
+obvious first implementation aliased `security`/`infra` straight onto the
+pre-existing `security-status`/`infra-status` handlers - which still call
+gitleaks/semgrep/checkov directly and print "install gitleaks yourself"
+when absent, exactly the broken UX the prior session's `aep scan` work was
+built to fix. Caught by actually running the alias against a real repo
+before considering it done. Fixed by routing `security`/`infra` through
+the SAME capability-routed `scan_project()` as `aep scan` instead;
+`security-status`/`infra-status` themselves are untouched for any existing
+caller. `tests/test_cli_ux.py` (4 tests) pins this so it can't regress
+silently back to the old path.
+
+**Design (Part 4):** Used the `/design` skill to produce a settled visual
+direction (not multiple options - the brief was already fully specified):
+dark near-black base (oklch), Manrope/JetBrains Mono, restrained
+`backdrop-filter: blur(20px)` glass card surfaces only (never body text),
+and - the actual hard requirement - five VISUALLY DISTINCT status hues
+(PASS green, FAIL red, SKIPPED neutral gray, UNAVAILABLE amber, BLOCKED
+violet) so a scanner that's `BLOCKED` never reads as `FAIL` at a glance.
+3 artboards (Dashboard, Project Detail, Security & Intelligence) built
+with the REAL data already produced by this and the prior session
+(the actual winfotest-infra scan result, the actual engineering-health
+signal text) rather than invented content. Published as a Claude Design
+canvas for the user's own visual review. Pixel screenshots of the canvas
+were not obtainable in this session (the Browser pane was not visually
+displayed) - verified structurally instead (seed-canvas --check, and a
+local static-file DOM/text read confirming every real data point rendered
+with no missing/garbled content).
+
+**Implementation (Parts 5/6):** Applied directly to the EXISTING React/
+Vite/TypeScript app - no new frontend, no duplicate backend endpoints,
+same `useState` tab-switch architecture, same `ui/src/api.ts` contract.
+Changed: `index.css` (full token/glass system, single dark theme - no
+light-mode branch, since a security console doesn't need one and none was
+requested), `components.tsx` (`StatusBadge` recolored to the 5-state
+palette; also fixed a PRE-EXISTING gap found in the same function -
+`SecuritySeverity` values (`critical`/`high`/`medium`/`low`/`info`,
+lowercase) never matched any color bucket before, so every finding
+rendered the identical gray badge regardless of severity), `App.tsx`
+(sidebar + topbar shell, same `TABS`/`tab`/`setTab` logic, one inline SVG
+icon per nav item), and every page in `pages.tsx` wrapped in `.glass`
+card containers (presentational only - zero data-fetching/logic changes).
+`npx tsc --noEmit`: clean. Every existing `dangerouslySetInnerHTML`
+non-use, findings/evidence-as-text-node rendering, and no-secret-in-UI
+property was already true and is unchanged (verified by reading
+`EvidenceView.tsx` and every page - all interpolation is React text
+children, never raw HTML).
+
+**Verification (Parts 8/9/12), all against the REAL `aep start` server,
+not a dev server:** built the packaged UI
+(`vite build --outDir ../src/aep/ui_dist`), started the actual product
+(`aep start`), created the real `winfotest-infra` project through the
+running API, and drove the real browser against it:
+- Dashboard, Projects, Project Detail, Approvals all render with zero
+  console errors on every navigation.
+- Project Detail for the REAL winfotest-infra project shows the actual
+  Engineering Health/Cost Intelligence/Remediation Decisions panels with
+  real computed values (HEALTHY/UNKNOWN/BLOCKED, matching what the prior
+  session's manual API probe returned).
+- `aep scan "...\winfotest-infra"` (the actual acceptance test): detected
+  CI_CD/GIT/INFRASTRUCTURE/TERRAFORM correctly, Secrets PASS, SAST/
+  Dependencies/Containers SKIPPED with correct reasons, IaC FAIL with the
+  same real `backend "local"` finding as before - unregressed.
+- Restart persistence re-verified on the redesigned UI: killed the server,
+  restarted on a different port, the winfotest-infra project (and its
+  `deny` posture badge, rendered as plain text, not HTML) was still there.
+- Screenshots were not obtainable this session (Browser pane not visually
+  displayed, same limitation as the design-canvas step) - substituted the
+  strongest available check: DOM text extraction + console-error reading
+  after every navigation, which is what actually caught issues in prior
+  sessions (e.g. the mis-based asset paths BUG that screenshots alone
+  would not have shown either).
+
+**Testing:** focused (`cli or scan or security or ux or capabilities`):
+177 passed, 15 skipped, 0 failed. Full suite (run once, after everything
+stabilized): see this session's final report for the exact count.
+
+**Artifacts:** wheel + sdist rebuilt with the new `ui_dist/` assets,
+`twine check` PASSED for both. Version unchanged (0.1.0). NOT published -
+explicit instruction this pass was "do not publish."
+
+**Not done, deliberately, within this pass's own scope limits:** no
+database, PostgreSQL lifecycle, policy engine, skills architecture, AI
+Gateway, or Phase 10 intelligence-engine code was touched. A throwaway
+`.claude/launch.json` used for local design-QA (a static file server over
+a temp scratch directory) was removed before commit - session-specific,
+not part of the shipped product.

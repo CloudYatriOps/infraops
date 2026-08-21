@@ -7,12 +7,20 @@ is architecturally incapable of affecting the backend, and `ARCHITECTURE.md`
 verified against `ui/src/App.tsx` and `ui/src/pages.tsx`.
 
 There is no router and no state-management library — the app is a single
-page with a tab bar (`useState`-switched), calling one or more of the Wave 1
-API endpoints per tab via the thin `ui/src/api.ts` fetch wrapper. No AEP
-logic (skill resolution, policy evaluation, AI routing) is reimplemented in
-TypeScript anywhere.
+page with a sidebar tab bar (`useState`-switched), calling one or more of
+the Wave 1 API endpoints per tab via the thin `ui/src/api.ts` fetch
+wrapper. No AEP logic (skill resolution, policy evaluation, AI routing) is
+reimplemented in TypeScript anywhere.
 
-## Nav tabs (exact labels, left to right)
+The visual style (`ui/src/index.css`) is a dark, restrained
+glassmorphism console — translucent blurred card surfaces over a near-black
+base, five visually distinct status colors for `PASS`/`FAIL`/`SKIPPED`/
+`UNAVAILABLE`/`BLOCKED` (`StatusBadge` in `ui/src/components.tsx` is the
+single place that maps a status string to a color — every page uses it,
+nothing hardcodes a badge color). This is styling only; no data flow,
+component structure, or API contract changed.
+
+## Nav tabs (exact labels, top to bottom in the sidebar)
 
 `Dashboard`, `Projects`, `Task Execution`, `Task Detail`, `Findings`,
 `Incidents`, `Approvals`, `Runtime`, `Evidence`, `Providers`.

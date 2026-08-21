@@ -922,6 +922,42 @@ def _build_providers_payload(args: argparse.Namespace) -> dict:
     return payload
 
 
+def cmd_security_alias(args: argparse.Namespace) -> None:
+    """`aep security <path>` - security-only view of `aep scan`.
+
+    Deliberately does NOT alias the older `security-status` (which still
+    calls gitleaks/semgrep/checkov directly and reports "gitleaks binary
+    not found - install it yourself" when they are absent - exactly the
+    experience `aep scan`'s capability routing exists to fix). Routing
+    this new command through the OLD path would have reintroduced that
+    same broken UX under a friendlier name. `security-status` itself is
+    untouched for any existing script that already calls it; this is a
+    genuinely new, better command, not a mechanical alias."""
+    from .scan import render_report, scan_project
+
+    report = scan_project(args.path)
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+        return
+    print(render_report(report))
+
+
+def cmd_infra_alias(args: argparse.Namespace) -> None:
+    """`aep infra <path>` - infrastructure-only view of `aep scan`, for
+    the same reason `security` doesn't alias the old `infra-status`: that
+    path still requires checkov and reports UNAVAILABLE without it, where
+    `aep scan`'s IaC analyzer already works out of the box via the native
+    Terraform/Kubernetes scanners. `infra-status` is untouched for any
+    existing caller."""
+    from .scan import render_report, scan_project
+
+    report = scan_project(args.path)
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+        return
+    print(render_report(report))
+
+
 def cmd_scan(args: argparse.Namespace) -> None:
     """`aep scan <path>` - capability-routed, READ-ONLY project analysis.
 
@@ -1432,6 +1468,41 @@ def cmd_patterns(args: argparse.Namespace) -> None:
               f"projects={s['affected_projects']} - {s['explanation']}")
 
 
+_TOP_LEVEL_HELP = """AEP - Autonomous Engineering Platform
+
+Usage:
+  aep                    Start AEP (local database, API, packaged UI)
+  aep scan <path>        Analyze a project (auto-detects what it is)
+  aep security <path>    Security analysis for a repo
+  aep infra <path>       Infrastructure analysis for a repo
+  aep intelligence       Cross-project engineering intelligence
+  aep demo               Run the reproducible demo
+  aep status             Platform-wide progress/deployability
+
+Core:
+  start                  one-command local product startup
+  scan                   auto-detecting project analysis (read-only)
+  security               security posture for a target repo
+  infra                  infrastructure posture for a target repo
+  intelligence           cross-project intelligence subcommands
+  demo                   demo run / demo readiness
+  status                 platform status
+  progress               detailed per-phase/per-capability progress
+  providers              AI provider reachability
+
+Advanced (unchanged, full detail via `aep <command> --help`):
+  tasks, events, run-fix-bug, skills, security-status, security-suppress,
+  security-suppressions, infra-status, infra-inventory, cloud-status,
+  ci-status, deploy-status, operations-status, incident-status,
+  verify-phase, runtime-start, runtime-status, runtime-stop,
+  runtime-workers, runtime-jobs, runtime-recover, prioritize
+
+Every subcommand from earlier releases still works exactly as before -
+`security`/`infra`/`scan` are additions, not replacements. Run
+`aep <command> --help` for any command's full options.
+"""
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="aep")
     parser.add_argument("--db", default="aep_state.db")
@@ -1753,6 +1824,18 @@ def main(argv=None) -> int:
     p_healthscore_cmd.add_argument("--json", action="store_true")
     p_healthscore_cmd.set_defaults(func=cmd_health_score)
 
+    p_security_alias = sub.add_parser(
+        "security", help="security analysis for a target repo (alias for security-status)")
+    p_security_alias.add_argument("path", help="path to the repository to analyze")
+    p_security_alias.add_argument("--json", action="store_true")
+    p_security_alias.set_defaults(func=cmd_security_alias)
+
+    p_infra_alias = sub.add_parser(
+        "infra", help="infrastructure analysis for a target repo (alias for infra-status)")
+    p_infra_alias.add_argument("path", help="path to the repository to analyze")
+    p_infra_alias.add_argument("--json", action="store_true")
+    p_infra_alias.set_defaults(func=cmd_infra_alias)
+
     p_scan = sub.add_parser("scan", help="analyze a project: auto-detects what the repository "
                                           "is and runs only the applicable checks (read-only)")
     p_scan.add_argument("path", nargs="?", default=".",
@@ -1768,9 +1851,21 @@ def main(argv=None) -> int:
     p_start.add_argument("--db-backend", default=None)
     p_start.set_defaults(func=cmd_start)
 
+    raw_argv = argv if argv is not None else sys.argv[1:]
+    # `aep -h`/`aep --help` with NO subcommand gets a curated, concise
+    # summary instead of argparse's default full listing of all ~45
+    # subcommands - which is what made `aep --help` unfriendly to begin
+    # with. `aep <command> --help` is untouched: it still goes through
+    # argparse below and shows that command's real, full help. No
+    # subcommand was removed or renamed; this only changes what prints
+    # for the bare top-level help request.
+    if raw_argv in (["-h"], ["--help"]):
+        print(_TOP_LEVEL_HELP)
+        return 0
+
     # Bare `aep` with no subcommand IS the product's start command - the
     # one-command UX. Any actual subcommand behaves exactly as before.
-    args = parser.parse_args(argv if argv is not None or len(sys.argv) > 1 else ["start"])
+    args = parser.parse_args(raw_argv if raw_argv else ["start"])
     args.func(args)
     return 0
 

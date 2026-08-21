@@ -76,6 +76,14 @@ Statuses are precise and not interchangeable:
 or deploys the target repository. Remediation is a separate, explicit
 action. Add `--json` for machine-readable output.
 
+`aep security <path>` and `aep infra <path>` give the same read-only
+analysis filtered to just security or just infrastructure — useful when
+that's all you want the answer to. Every pre-existing command
+(`security-status`, `infra-status`, `tasks`, `events`, …) still works
+exactly as before; `scan`/`security`/`infra` are additions, not
+replacements. `aep --help` shows a short, curated command list; every
+subcommand's own `--help` is unchanged.
+
 ## What it does
 
 - Secret detection (built in — no external binary required)
