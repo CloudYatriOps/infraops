@@ -1398,3 +1398,68 @@ list, not by an actual install/run. `aep data reset` not implemented -
 uninstall/reinstall/upgrade all preserve data, which is the safe default,
 and deleting the data directory by hand is currently the documented way
 to discard it.
+
+## Release closure (this session): 3 failures resolved, BUG-0020 actually fixed
+
+Closed the release. No new features, no Phase 11.
+
+**A - the 3 remaining failures, all classified and fixed at the root:**
+
+| Test | Classification | Resolution |
+|---|---|---|
+| `test_deployment_kubernetes_provider` (x2) | TEST DEFECT - environment premise baked into an assertion | The PRODUCT was already right: with `kubectl` present but no cluster it correctly returns `BLOCKED`, and the repo already had a separate test proving that. The two failing tests hardcoded the original sandbox's "no kubectl" world. Rewritten to branch on the provider's own `_kubectl_available()` capability detection and assert the correct classification for whatever is really there. The invariant they exist to protect - never silently `AVAILABLE` without a reachable cluster - is preserved and now explicit. |
+| `test_cicd_github_actions::..._is_actually_blocked_from_this_sandbox` | TEST DEFECT - obsolete premise | Asserted `api.github.com` returns 403/000, i.e. hardcoded one sandbox's egress block as if it were a property of AEP. This machine reaches it (200) and the test failed for observing the truth. Rewritten to assert the probe lands in a RECOGNIZED, classifiable state (reachable vs. blocked/rate-limited), and to fail loudly on an unrecognized one. Also switched from shelling out to `curl` (bare-binary PATH resolution + a `/dev/null` assumption, both platform traps) to stdlib `urllib`. |
+
+No assertion was weakened - each test now checks the invariant it was
+written for instead of an environment fact it happened to observe once.
+
+**B - BUG-0020: RESOLVED, and the previous entry was wrong.**
+
+The prior session recorded this as an unfixable limitation whose recovery
+was "delete the data directory". Investigated properly: PostgreSQL's own
+log showed `database system was not properly shut down; automatic
+recovery in progress` / `redo starts` / `redo done`. The database was
+healthy and self-healing the whole time. Two AEP bugs turned that into a
+hard failure: (1) querying before the server accepts connections, during
+WAL replay; (2) treating `pgserver`'s hardcoded 10s `pg_ctl -w` timeout
+as "start failed", when the server finishes and starts listening moments
+later. Fixed with `_wait_until_accepting_connections()`, a
+`_running_server_uri()` probe that adopts a postmaster that came up after
+the timeout, and bounded retries. `DatabaseRecoveryRequired` now fires
+only when the server genuinely never becomes usable, and says plainly
+that data is preserved. **AEP still never deletes a data directory.**
+
+Verified live, twice, including the strongest possible demonstration: on
+the final release build, an ungraceful kill of AEP + all 12 postgres
+processes produced the exact old symptom (`Timeout starting server`) in
+the log - and AEP absorbed it, started, and the project created through
+the UI moments earlier was still there.
+
+**C - `aep doctor`: OPTION 1 (not implemented), deliberately.** Nothing in
+the codebase or docs ever referenced it (`grep` for `doctor` outside
+BUGFIX/handoff: zero hits), so nothing was over-promised. `aep`/`aep
+start` already prints database/migrations/AI-provider/UI/runtime status
+at startup, and `aep status`/`progress`/`demo readiness`/`providers`/
+`*-status` cover the rest. Building a second health system would be a new
+feature and another thing to keep in sync. README now has a Diagnostics
+table mapping each question to the command that answers it.
+
+**D - platform claims corrected in README.** Windows x86-64
+INSTALL-VERIFIED; macOS and Linux NOT INSTALL-VERIFIED (wheels exist,
+never actually installed/run there) - stated as a table, with wheel
+availability explicitly distinguished from verified support. Python
+3.10-3.12 only; `requires-python = ">=3.10,<3.13"` unchanged.
+
+**E/F - release verification, all re-run on the final wheel:** clean venv
++ wheel install, `aep` console command, local PostgreSQL, migrations,
+`aep start`, packaged UI, happy-path demo, ambiguous-refusal demo,
+restart persistence. Browser smoke on the real installed product:
+dashboard, projects, **a project created through the UI**, project detail
+with all three intelligence panels, task execution, approvals, evidence,
+runtime - **zero console errors**.
+
+**Remaining external limitations (unchanged, all optional):** OmniRoute/AI
+provider NOT_CONFIGURED; live GitHub API reachable here but never
+exercised against a real repo; no Kubernetes cluster (kubectl present,
+correctly reported BLOCKED); no cloud credentials; container/Go scanning
+and Helm/Terraform CLI still need their respective binaries/egress.

@@ -105,6 +105,35 @@ aep demo readiness
 `requires-python` is `>=3.10,<3.13` rather than claiming support that
 cannot actually install.
 
+### Diagnostics
+
+There is deliberately **no `aep doctor`** command. The same information is
+already reported by commands that exist, so a second health system would
+only be another thing to keep in sync:
+
+| Want to know | Run |
+|---|---|
+| database, migrations, AI provider, UI, runtime | `aep` / `aep start` (prints all of it at startup) |
+| platform-wide progress and deployability | `aep status` |
+| per-phase / per-capability detail | `aep progress` |
+| whether the demo can run end to end | `aep demo readiness` |
+| AI provider reachability, honestly probed | `aep providers` |
+| security / infra / CI / runtime posture | `aep security-status`, `aep infra-status`, `aep ci-status`, `aep runtime-status` |
+
+Statuses are reported as `OK`/`READY`, `WARN`, `BLOCKED`, `UNAVAILABLE`,
+`NOT_CONFIGURED` or `FAIL` — never a fabricated success.
+
+### Platform support
+
+| Platform | Status |
+|---|---|
+| Windows x86-64 | **INSTALL-VERIFIED** — clean wheel install, `aep`, demo, UI, restart and upgrade all exercised here |
+| macOS x86-64 / ARM64 | **NOT INSTALL-VERIFIED** — `pgserver` publishes wheels, but AEP has not been installed or run there |
+| Linux x86-64 | **NOT INSTALL-VERIFIED** — same: wheels exist, no actual install/run performed |
+
+Wheel availability is not the same as verified support, and this table
+reports only what was actually executed.
+
 ### Your data
 
 | What | Where |

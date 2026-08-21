@@ -24,11 +24,98 @@ this.
 from __future__ import annotations
 
 import os
+import time
 import sys
 from pathlib import Path
 from typing import Optional
 
 _cached_uri: Optional[str] = None
+
+# BUG-0020: `pgserver` already handles a stale `postmaster.pid` left by an
+# ungraceful kill. What it does NOT absorb is its own fixed 10s `pg_ctl -w`
+# start timeout: after an unclean shutdown PostgreSQL replays its
+# write-ahead log before accepting connections, and that routinely takes
+# longer than 10s. pg_ctl then reports "Timeout starting server" even
+# though recovery is progressing perfectly normally underneath.
+#
+# So retry with a real waiting envelope rather than once: the database is
+# busy protecting the user's data, and the only correct response is
+# patience. Never a wipe.
+_START_ATTEMPTS = 5
+_START_RETRY_SLEEP_SECONDS = 5.0
+
+
+class DatabaseRecoveryRequired(RuntimeError):
+    """AEP's local PostgreSQL could not be started.
+
+    Raised INSTEAD of ever deleting or reinitializing the data directory:
+    a failed start is not evidence that the data is bad, and silently
+    discarding a user's history to make a startup succeed would be a far
+    worse outcome than stopping with an explanation. The message always
+    states that data is preserved and names the manual recovery step.
+    """
+
+
+def _running_server_uri(pgserver, data_dir: Path) -> Optional[str]:
+    """Return the URI of a postmaster that is genuinely up for this data
+    directory, or None. Reads the on-disk postmaster info rather than
+    trusting a handle, so it stays correct when `pg_ctl` reported a
+    timeout for a server that then finished starting."""
+    try:
+        from pgserver.utils import PostmasterInfo
+
+        info = PostmasterInfo.read_from_pgdata(data_dir)
+        if info is not None and info.is_running() and info.status == "ready":
+            return info.get_uri()
+    except Exception:  # noqa: BLE001 - best-effort probe, never the failure path
+        return None
+    return None
+
+
+def _start_server(pgserver, data_dir: Path) -> str:
+    """Start (or attach to) the local server and return a usable URI.
+
+    Retries a transient failure, then fails loudly and non-destructively.
+    The URI is fetched INSIDE the retry on purpose: after an unclean kill
+    `get_server()` can return a handle whose postmaster info was never
+    populated, and `get_uri()` then raises `AssertionError` from deep
+    inside the dependency. Treating that as a failed attempt (rather than
+    trusting the handle) is what makes the retry actually cover the
+    crash-recovery case.
+    """
+    last_exc: Optional[BaseException] = None
+    for _ in range(_START_ATTEMPTS):
+        try:
+            server = pgserver.get_server(str(data_dir))
+            return server.get_uri()
+        except Exception as exc:  # noqa: BLE001 - re-raised as a typed error below
+            last_exc = exc
+            time.sleep(_START_RETRY_SLEEP_SECONDS)
+            # `pg_ctl -w` timing out does NOT mean the server failed to
+            # start - after an unclean shutdown it is usually just still
+            # replaying WAL, and it finishes and starts listening moments
+            # later. Before spending another start attempt (or giving up),
+            # check whether a postmaster is now actually up and use it.
+            uri = _running_server_uri(pgserver, data_dir)
+            if uri is not None:
+                return uri
+    raise DatabaseRecoveryRequired(
+        "AEP database requires recovery. Data preserved - nothing was deleted.\n"
+        f"  data directory: {data_dir}\n"
+        f"  underlying error: {type(last_exc).__name__}: {last_exc}\n"
+        "\n"
+        "This usually means a previous AEP process (or the machine) was killed\n"
+        "ungracefully and a PostgreSQL process is still holding the directory.\n"
+        "Recovery, in order:\n"
+        "  1. Make sure no stray postgres process is running for this data\n"
+        "     directory, then run `aep start` again - a stale postmaster.pid\n"
+        "     alone is handled automatically.\n"
+        f"  2. Inspect the PostgreSQL log at {data_dir / 'log'} for the real cause.\n"
+        "  3. Only if you have decided the local database is expendable, delete\n"
+        f"     {data_dir} by hand. AEP will never do this for you, because it\n"
+        "     destroys all local task/evidence/memory history.\n"
+        "See BUGFIX.md BUG-0020."
+    ) from last_exc
 
 
 def get_data_dir() -> Path:
@@ -81,16 +168,69 @@ def ensure_local_postgres() -> str:
 
     data_dir = get_data_dir() / "postgres"
     data_dir.mkdir(parents=True, exist_ok=True)
-    server = pgserver.get_server(str(data_dir))
-    server.psql("create extension if not exists vector;")
+    uri = _start_server(pgserver, data_dir)
+
+    # BUG-0020: `pg_ctl -w` returning does NOT mean the database is ready
+    # to accept queries. After an unclean shutdown PostgreSQL performs
+    # normal WAL crash recovery first and rejects connections with
+    # "the database system is starting up" until it finishes. Waiting for
+    # that is the correct, non-destructive recovery - the data is fine and
+    # Postgres is in the middle of protecting it.
+    _wait_until_accepting_connections(uri, data_dir)
 
     from . import migrations
     import psycopg2
-    conn = psycopg2.connect(server.get_uri(), connect_timeout=5)
+    # `create extension` runs over psycopg2 rather than pgserver's `psql`
+    # binary wrapper: one connection path to reason about, and it is the
+    # one we just confirmed is ready.
+    conn = psycopg2.connect(uri, connect_timeout=10)
     try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("create extension if not exists vector;")
+        conn.autocommit = False
         migrations.apply_pending(conn)
     finally:
         conn.close()
 
-    _cached_uri = server.get_uri()
+    _cached_uri = uri
     return _cached_uri
+
+
+def _wait_until_accepting_connections(uri: str, data_dir: Path,
+                                       timeout_seconds: float = 120.0) -> None:
+    """Block until the freshly-started server actually accepts a
+    connection, or fail with the non-destructive recovery message.
+
+    The timeout is generous on purpose: crash recovery replays the write-
+    ahead log, and how long that takes scales with how much work was in
+    flight when the process died. Giving up early here - or worse,
+    "recovering" by wiping the directory - would destroy exactly the data
+    PostgreSQL is in the middle of restoring.
+    """
+    import psycopg2
+
+    deadline = time.monotonic() + timeout_seconds
+    last_exc: Optional[BaseException] = None
+    while time.monotonic() < deadline:
+        try:
+            psycopg2.connect(uri, connect_timeout=5).close()
+            return
+        except Exception as exc:  # noqa: BLE001 - retried, then reported below
+            last_exc = exc
+            time.sleep(1.0)
+
+    raise DatabaseRecoveryRequired(
+        "AEP database requires recovery. Data preserved - nothing was deleted.\n"
+        f"  data directory: {data_dir}\n"
+        f"  last connection error: {last_exc}\n"
+        "\n"
+        f"The local PostgreSQL server started but did not begin accepting\n"
+        f"connections within {timeout_seconds:.0f}s. If it reported \"the database\n"
+        "system is starting up\", it is replaying its write-ahead log after an\n"
+        "unclean shutdown - that is normal recovery and it protects your data;\n"
+        "simply run `aep start` again and allow it more time.\n"
+        f"Otherwise inspect the PostgreSQL log at {data_dir / 'log'}.\n"
+        "AEP will never delete this directory for you - doing so would destroy\n"
+        "all local task/evidence/memory history. See BUGFIX.md BUG-0020."
+    ) from last_exc

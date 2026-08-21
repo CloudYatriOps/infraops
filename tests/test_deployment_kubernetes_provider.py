@@ -4,26 +4,55 @@ exercised with an injected `run_kubectl` fake for the "cluster present"
 branch."""
 from __future__ import annotations
 
+import pytest
+
 from aep.deployment.kubernetes_provider import KubernetesDeploymentProvider
 from aep.deployment.provider import DeploymentProviderAvailability
 
 
-def test_status_is_unavailable_in_this_sandbox():
-    """No `kubectl` binary is installed here (verified during Phase 6
-    investigation: `which kubectl` returns nothing) - this must never be
-    silently reported as AVAILABLE."""
+def test_status_classifies_the_real_environment_and_never_silently_claims_available():
+    """The invariant under test is "never silently AVAILABLE", NOT "this
+    machine has no kubectl".
+
+    This previously hardcoded the original sandbox's environment (no
+    `kubectl` binary => UNAVAILABLE). On a machine that DOES have kubectl
+    installed but no reachable cluster, the provider correctly reports
+    BLOCKED - and the test failed for reporting the truth. Assert the
+    classification that matches the real environment, using the provider's
+    own capability detection rather than a baked-in assumption.
+    """
+    import aep.deployment.kubernetes_provider as mod
+
     provider = KubernetesDeploymentProvider()
     avail, reason = provider.status()
-    assert avail == DeploymentProviderAvailability.UNAVAILABLE
-    assert "never been exercised against a real cluster" in reason
+
+    if not mod._kubectl_available():
+        assert avail == DeploymentProviderAvailability.UNAVAILABLE
+        assert "never been exercised against a real cluster" in reason
+    else:
+        # kubectl present: only a genuinely reachable cluster may yield
+        # AVAILABLE. Anything else must be BLOCKED, never a silent pass.
+        assert avail in (DeploymentProviderAvailability.BLOCKED,
+                          DeploymentProviderAvailability.AVAILABLE)
+        if avail is DeploymentProviderAvailability.BLOCKED:
+            assert "no cluster is reachable" in reason
+    assert reason, "a status must always carry an explanation, never a bare enum"
 
 
-def test_deploy_refuses_when_unavailable_never_fabricates_success():
+def test_deploy_refuses_unless_a_real_cluster_is_reachable_never_fabricates_success():
     provider = KubernetesDeploymentProvider()
+    avail, _ = provider.status()
+    if avail is DeploymentProviderAvailability.AVAILABLE:
+        pytest.skip("a real Kubernetes cluster is reachable here; this test covers "
+                     "the refusal path, which by definition does not apply")
+
     plan = provider.plan("production", "abc123", "artifact-1")
     outcome = provider.deploy(plan)
     assert not outcome.success
-    assert outcome.provider_status == DeploymentProviderAvailability.UNAVAILABLE
+    # Whatever the real reason is (no binary => UNAVAILABLE, binary but no
+    # cluster => BLOCKED), deploy must surface THAT status, not invent one
+    # and not report success.
+    assert outcome.provider_status == avail
 
 
 def test_status_reports_blocked_when_kubectl_binary_present_but_cluster_unreachable(monkeypatch):

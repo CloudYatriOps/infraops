@@ -1276,49 +1276,99 @@ a real downstream consumer (here, recurrence-interval math) depends on
 correctness, rather than accumulating "documented but unfixed"
 limitations indefinitely.
 
-## BUG-0020 (found, NOT fixed — disclosed): embedded PostgreSQL needs a manual data-dir wipe after an ungraceful kill
+## BUG-0020 (RESOLVED — fixed, was previously recorded as an unfixable limitation): embedded PostgreSQL failed to start after an ungraceful kill
 
-- **Date:** 2026-08-21
-- **Component:** `src/aep/db/local_postgres.py` / the `pgserver` dependency's lifecycle.
+- **Date:** 2026-08-21 (supersedes the 2026-08-20 "not fixed" entry)
+- **Component:** `src/aep/db/local_postgres.py`.
 
 ### Symptom
-Hard-killing `postgres.exe` (`taskkill /F`) while AEP's embedded server is
-running leaves stale postmaster state in the data directory. The next
-resolution then fails inside `pgserver` with
-`assert self._postmaster_info.status == 'ready'` (AssertionError) or a
-`psql ... returned non-zero exit status 2` / connection-refused, and does
-NOT self-heal on retry. Observed twice this session: once against the
-product data dir (recovered on a second `aep start`), once against the
-test data dir (did not recover — required deleting the directory).
+After an ungraceful kill of AEP and/or its embedded PostgreSQL
+(`taskkill /F`, power loss), the next start failed with one of:
+`assert self._postmaster_info.status == 'ready'` (AssertionError),
+`psql ... returned non-zero exit status 2` with
+`FATAL: the database system is starting up`, or
+`Timeout starting server`. The previous entry concluded a manual
+data-directory wipe was required.
 
-### Impact
-A user whose machine hard-crashes, or who kills the process tree, can end
-up with an AEP that will not start until the data directory is removed —
-which also discards their local history, the exact thing the local-first
-architecture promises to preserve. No data was actually lost in either
-observation here (the product data dir recovered on retry), but the
-failure mode is real and the recovery path is undocumented.
+### Correction to the earlier entry
+That conclusion was **wrong**, and the recorded root cause ("stale
+postmaster.pid that `pgserver` asserts on rather than recovers from")
+was also wrong. `pgserver` handles a stale pid file correctly. The real
+cause, confirmed from PostgreSQL's own log:
 
-### Root cause (not fully confirmed)
-Stale `postmaster.pid`/status metadata that `pgserver`'s
-`ensure_postgres_running` asserts on rather than recovers from. Whether
-the right fix belongs in AEP (detect-and-clean stale state before
-delegating) or upstream in `pgserver` was not determined.
+```
+LOG:  database system was not properly shut down; automatic recovery in progress
+LOG:  redo starts at 0/14821D8
+LOG:  redo done at 0/15C0BD0
+```
+
+PostgreSQL was performing **normal WAL crash recovery** — doing exactly
+its job, protecting the data. Two AEP bugs turned that healthy behavior
+into a hard failure:
+
+1. **AEP queried the database before it was accepting connections.**
+   `ensure_local_postgres` ran `create extension ...` immediately after
+   the server handle came back, while Postgres was still replaying WAL
+   and correctly refusing connections with "the database system is
+   starting up".
+2. **AEP treated a `pg_ctl -w` timeout as "the server failed to start".**
+   `pgserver` hardcodes a 10s `pg_ctl` timeout; crash recovery plus
+   startup can exceed it. The server then finishes and starts listening
+   *moments later*, but AEP had already given up. Verified from the log:
+   the server reported "ready to accept connections" during the very
+   invocation that had already raised.
+
+Nothing was ever wrong with the data. Deleting the data directory —
+the previously "documented" recovery — would have destroyed a perfectly
+healthy database to work around an AEP timing bug.
 
 ### Fix
-None this pass. Deliberately not "fixed" by having AEP delete a data
-directory automatically on a failed start — silently discarding a user's
-database to recover from a failed startup is far worse than failing
-loudly, and picking the safe recovery (clean only the stale pid/status
-metadata, never the data) needs more certainty about `pgserver`'s
-internals than this pass established.
+Three changes in `local_postgres.py`, none of which delete anything:
+- `_wait_until_accepting_connections()` — after starting, poll until the
+  server genuinely accepts a connection (generous 120s default, because
+  WAL replay time scales with in-flight work). This is the actual
+  recovery wait.
+- `_running_server_uri()` — on a failed/timed-out start attempt, read the
+  on-disk postmaster info and, if a postmaster is now up and `ready`, use
+  it instead of retrying or failing. A `pg_ctl` timeout is not evidence
+  that the server failed.
+- `_start_server()` — bounded retries (5, 5s apart) around the above, and
+  `get_uri()` is fetched *inside* the try so a handle whose postmaster
+  info was never populated counts as a failed attempt.
+- `create extension` now runs over psycopg2 on the connection already
+  proven ready, rather than shelling out to the `psql` binary.
+- `DatabaseRecoveryRequired` is raised only when the server genuinely
+  never becomes usable. Its message states plainly that data is
+  preserved, points at the PostgreSQL log, and explicitly says AEP will
+  never delete the directory.
+
+**AEP still never deletes or reinitializes a data directory**, per the
+requirement — that remains a manual, user-only decision.
 
 ### Tests
-None — reproduced manually twice, not yet captured as an automated test.
+- `tests/test_local_postgres.py`: 3 new tests covering the retry, and
+  both non-destructive failure paths (start never succeeds; server never
+  accepts connections) — each asserting a canary file in the data
+  directory survives untouched. 6 pass.
+- Real power-loss simulation, run live and reproducible: start AEP, write
+  a row, `taskkill /F` the holder process AND all 12+ `postgres.exe`
+  processes, then resolve from a fresh process. PostgreSQL's log confirms
+  genuine crash recovery ("was not properly shut down; automatic recovery
+  in progress"), and AEP **recovered automatically on the first attempt**
+  with the row intact. Before the fix, the identical sequence failed.
+- No automated end-to-end kill test is included, deliberately — three
+  attempts all failed for harness reasons (pgserver caches its handle
+  per data dir in module state, holds a cross-process lock, and its
+  atexit hook converts a killed helper into a *clean* shutdown, so the
+  simulated scenario kept not being the real one). A test that passes for
+  the wrong reason is worse than none; the reasoning is recorded in a
+  comment in the test file.
 
 ### Lesson
-An embedded database makes the product responsible for crash recovery
-that an externally-managed PostgreSQL service would have handled itself.
-"Works across a clean restart" (verified) is a weaker claim than
-"survives an unclean one" (not yet true), and the two must not be
-reported as the same guarantee.
+"The dependency can't recover from this" deserves far more suspicion than
+it got the first time. The database was healthy and self-healing
+throughout; the defect was entirely in AEP's impatience. Recording an
+unverified root cause turned a fixable timing bug into a documented
+data-loss-adjacent limitation — and the proposed "recovery" (wipe the
+directory) would have destroyed user data to work around our own bug.
+
