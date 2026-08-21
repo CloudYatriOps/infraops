@@ -10,6 +10,14 @@ name = "aep-platform"
 version = "0.1.1"
 description = "AEP: a local-first autonomous engineering and DevSecOps platform - policy-gated task orchestration, a versioned skill registry, and real security/dependency/infrastructure intelligence, backed by a zero-config embedded PostgreSQL. No PostgreSQL install, no Supabase, no remote database, no npm - `pip install aep-platform` then `aep`."
 readme = "README.md"
+# Modern SPDX license metadata (PEP 639). AEP's own source is MIT; see
+# LICENSE and the dependency license audit in docs/LICENSES.md for why
+# this is compatible with every bundled/optional dependency (none are
+# GPL/AGPL, and the two LGPL-licensed optional scanners - semgrep,
+# checkov - are invoked as separate subprocess binaries, never imported
+# into this process, which does not trigger LGPL's linking obligations).
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10,<3.13"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -117,7 +125,10 @@ Documentation = "https://github.com/CloudYatriOps/infraops/blob/main/README.md"
 aep = "aep.cli:main"
 
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# >=77 for full PEP 639 SPDX `license`/`license-files` support (see
+# [project].license above) - anything older would either ignore the new
+# fields or error on them.
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

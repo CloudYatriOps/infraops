@@ -31,6 +31,12 @@ class ProjectRecord:
     token_budget: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # Migration 0008: "Delete Project" in the UI archives rather than
+    # hard-deletes (tasks/findings/events reference projects.id with no
+    # CASCADE, and scan history must never be blindly destroyed) - NULL
+    # means active, same as every project created before this column
+    # existed.
+    archived_at: Optional[datetime] = None
 
 
 @dataclass

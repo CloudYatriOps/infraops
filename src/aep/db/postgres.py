@@ -127,7 +127,7 @@ class PostgresProjectRepository(ProjectRepository):
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT id, name, repo_path, policy_path, default_posture, protected_branches, "
-                    "token_budget, created_at, updated_at FROM projects WHERE id = %s",
+                    "token_budget, created_at, updated_at, archived_at FROM projects WHERE id = %s",
                     (project_id,),
                 )
                 row = cur.fetchone()
@@ -135,15 +135,34 @@ class PostgresProjectRepository(ProjectRepository):
         finally:
             self._pool.putconn(conn)
 
-    def list(self) -> list[ProjectRecord]:
+    def list(self, include_archived: bool = False) -> list[ProjectRecord]:
+        conn = self._pool.getconn()
+        try:
+            query = ("SELECT id, name, repo_path, policy_path, default_posture, protected_branches, "
+                      "token_budget, created_at, updated_at, archived_at FROM projects")
+            if not include_archived:
+                query += " WHERE archived_at IS NULL"
+            with conn.cursor() as cur:
+                cur.execute(query)
+                return [_row_to_project(r) for r in cur.fetchall()]
+        finally:
+            self._pool.putconn(conn)
+
+    def archive(self, project_id: str) -> bool:
+        """"Delete Project" in the UI - archives (hides from the active
+        list) rather than deleting any row. Never touches tasks/findings/
+        events/evidence for this project, and never touches the
+        filesystem. Returns False if the project doesn't exist."""
         conn = self._pool.getconn()
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, name, repo_path, policy_path, default_posture, protected_branches, "
-                    "token_budget, created_at, updated_at FROM projects"
+                    "UPDATE projects SET archived_at = now() WHERE id = %s AND archived_at IS NULL",
+                    (project_id,),
                 )
-                return [_row_to_project(r) for r in cur.fetchall()]
+                updated = cur.rowcount > 0
+            conn.commit()
+            return updated
         finally:
             self._pool.putconn(conn)
 
@@ -152,7 +171,7 @@ def _row_to_project(row) -> ProjectRecord:
     return ProjectRecord(
         id=str(row[0]), name=row[1], repo_path=row[2], policy_path=row[3],
         default_posture=row[4], protected_branches=row[5], token_budget=row[6],
-        created_at=row[7], updated_at=row[8],
+        created_at=row[7], updated_at=row[8], archived_at=row[9],
     )
 
 

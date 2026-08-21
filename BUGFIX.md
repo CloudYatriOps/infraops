@@ -1,5 +1,133 @@
 # Bug Fixes
 
+## BUG-0026: drift detector flagged a legitimate migration-added column as unauthorized drift
+
+- **Date:** 2026-08-21
+- **Component:** `src/aep/db/migrations.py::_declared_columns`; found adding migration `0008_project_archive.sql` (`ALTER TABLE projects ADD COLUMN archived_at`) for the project-archive/delete feature - `tests/test_db_schema_drift.py::test_out_of_band_alter_table_is_flagged_as_drift` and `tests/test_db_migrations.py::test_full_migration_lifecycle_write_validate_apply_verify` both failed immediately after applying it, not assumed.
+
+### Symptom
+```
+AssertionError: ["projects: columns live but not declared (possible
+out-of-band ALTER): ['archived_at']"]
+assert 'DRIFT' == 'MATCH'
+```
+A column added through a real, checked-in migration file was reported as
+if it had been added out-of-band (exactly the class of unauthorized
+change `drift_report()` exists to catch) - a false positive on the
+platform's own schema-integrity guard.
+
+### Root cause
+`_declared_columns(table)` (the structural parser `drift_report()` uses
+to know what a table's columns are SUPPOSED to be) only ever parsed the
+table's original `CREATE TABLE` block - it had no logic at all for a
+later migration's `ALTER TABLE <table> ADD COLUMN ...`. Every prior
+migration that touched a column outside a `CREATE TABLE` (0002/0004/0005)
+happened to be a `DROP COLUMN` cleaning up an intentionally-injected
+test-only "rogue" column back to nothing - there had never been a
+genuine "add a real column via a migration and keep it" case before, so
+this gap was never exercised.
+
+### Fix
+`_declared_columns` now also scans every migration file for
+`ALTER TABLE <table> ADD COLUMN [IF NOT EXISTS] <col>` and unions those
+column names into the declared set, in addition to the original CREATE
+TABLE's columns. An out-of-band column added by hand (present live, in
+no migration file's CREATE TABLE OR ADD COLUMN) is still correctly
+flagged - only migration-declared columns are now recognized as
+legitimate, regardless of whether they arrived via the original CREATE
+TABLE or a later additive ALTER TABLE.
+
+### Tests
+- `tests/test_db_schema_drift.py` (both tests): re-run after the fix,
+  both pass - the genuine out-of-band-column test still correctly
+  reports DRIFT, and the legitimate migration-added column no longer
+  does.
+- `tests/test_db_migrations.py::test_full_migration_lifecycle_write_validate_apply_verify`:
+  passes.
+- Full suite: see this pass's final report for the exact count.
+
+### Lesson
+A structural drift check that only understands one DDL shape (`CREATE
+TABLE`) is not actually validating "does live match declared" - it is
+validating "does live match the FIRST declaration," which silently
+assumes schemas never evolve additively. The gap was invisible until the
+first real forward-evolving migration was written, which is exactly the
+kind of change this tool exists to make safe.
+
+## BUG-0025: `_check_skill_gate_wired`'s BUG-0024 fix introduced an order-dependent circular-import failure
+
+- **Date:** 2026-08-21
+- **Component:** `src/aep/progress/demo_readiness.py::_check_skill_gate_wired`; found while adding a focused test for an unrelated UI/UX pass, not assumed - the failure only reproduced once `aep.progress.demo_readiness` was imported as the FIRST touch of `aep.orchestrator` in a process, which most real invocations never do.
+
+### Symptom
+`tests/test_demo_readiness.py::test_skill_gate_wired_via_import_introspection`
+(added for BUG-0024) failed when run alone or in some file combinations,
+but passed in the full 826-test suite - a flaky-looking failure that was
+actually fully deterministic once isolated:
+```
+cannot import name 'Orchestrator' from partially initialized module
+'aep.orchestrator' (most likely due to a circular import)
+```
+Reproduced with zero test framework involved: `python -c "import
+aep.orchestrator"` alone fails with exactly this error on this codebase.
+
+### Root cause
+`aep.orchestrator` sits in a real dependency cycle: `orchestrator ->
+agents (package __init__) -> agents.ci_diagnose_agent -> github.planner
+-> orchestrator`. Importing `aep.orchestrator` as the very first touch of
+that graph fails: Python registers the not-yet-finished module in
+`sys.modules` before its body finishes executing (this is what makes
+circular imports *sometimes* work), so when the nested import chain
+reaches `github/planner.py`'s `from ..orchestrator import Orchestrator`,
+it finds the (still-executing) module object but the `Orchestrator` class
+hasn't been defined yet.
+
+BUG-0024's fix replaced a source-text read with `import aep.orchestrator`
+directly - a real improvement (package-aware, no hardcoded path) that
+reintroduced exactly the risk the ORIGINAL pre-BUG-0024 code's own
+comment warned about ("importing the class here risks a circular-import
+failure"). It happened to pass BUG-0024's own verification because every
+real entry point (`aep.cli` -> `aep.bootstrap`) imports `.agents` BEFORE
+`.orchestrator` in `bootstrap.py`, which resolves the cycle as a side
+effect before `aep.cli` ever calls this check - so `aep demo readiness`
+run for real, and the full test suite (which happens to import
+`aep.bootstrap`-touching tests earlier in collection), never hit the cold
+path. A standalone unit test importing only `aep.progress.demo_readiness`
+does.
+
+### Fix
+`_import_orchestrator_module()`: try the naive `import aep.orchestrator`
+first (works whenever something has already warmed the graph, the common
+case); on `ImportError` specifically, import `aep.bootstrap` first (the
+same module every real entry point already depends on and which reliably
+resolves the cycle) and retry. This does not hardcode the exact cycle
+shape - if the dependency graph changes later, the fallback still holds
+as long as `aep.bootstrap` remains importable, which it must for the
+product to function at all.
+
+### Tests
+- `tests/test_demo_readiness.py::test_skill_gate_wired_survives_a_genuinely_cold_import`
+  (new): spawns a genuinely fresh subprocess that imports ONLY
+  `aep.progress.demo_readiness` and calls the check - the only way to
+  deterministically reproduce the cold path regardless of what else runs
+  in the same pytest process. Confirmed failing against the pre-fix code,
+  passing after.
+- `test_skill_gate_wired_via_import_introspection` (existing, from
+  BUG-0024) re-run 3x in isolation post-fix: consistently passes (was
+  previously order-dependent).
+- Full suite re-run once, see this pass's final report for the count.
+
+### Lesson
+A test that passes in the full suite but fails in isolation is not
+flaky - it is order-dependent, and order-dependence in an import-based
+check is itself the defect, not a test artifact to shrug off. The fix
+for BUG-0024 was correct in spirit (package-aware, no hardcoded path) but
+incomplete: replacing a fragile path-guessing check with an equally
+order-fragile import assumed the codebase's dependency graph was
+acyclic, which it is not. Verify the NEW mechanism a fix introduces
+(here: "does importing this module cold always work?") as rigorously as
+the OLD defect it replaces.
+
 ## BUG-0024: installed-package `aep demo readiness` depended on source-checkout paths
 
 - **Date:** 2026-08-21

@@ -33,6 +33,19 @@ export const api = {
     request('/projects', { method: 'POST', body: JSON.stringify(body) }),
   getProject: (id: string) => request(`/projects/${id}`),
   getRepository: (projectId: string) => request(`/repositories/${projectId}`),
+  deleteProject: (projectId: string) => request(`/projects/${projectId}`, { method: 'DELETE' }),
+  // Scan lifecycle - same read-only `aep scan` engine, persisted server-side.
+  scanNow: (projectId: string) => request(`/projects/${projectId}/scan`, { method: 'POST' }),
+  listScans: (projectId: string) => request(`/projects/${projectId}/scans`),
+  getScan: (projectId: string, scanId: string) => request(`/projects/${projectId}/scans/${scanId}`),
+  getReport: (projectId: string) => request(`/projects/${projectId}/report`),
+  getReportMarkdown: async (projectId: string): Promise<string> => {
+    const headers: Record<string, string> = {}
+    if (API_KEY) headers['Authorization'] = `Bearer ${API_KEY}`
+    const resp = await fetch(`${BASE}/projects/${projectId}/report?format=markdown`, { headers })
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`)
+    return resp.text()
+  },
   listAgents: () => request('/agents'),
   listSkills: () => request('/skills'),
   getSkill: (id: string) => request(`/skills/${id}`),

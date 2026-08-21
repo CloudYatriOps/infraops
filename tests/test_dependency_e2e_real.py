@@ -56,7 +56,7 @@ def _init_repo(path) -> None:
     subprocess.run(["git", "-C", str(path), "config", "user.name", "AEP Bot"], check=True)
 
 
-def test_real_end_to_end_dependency_remediation(tmp_path):
+def test_real_end_to_end_dependency_remediation(tmp_path, policy_path):
     repo = tmp_path / "vulnerable_fixture"
     repo.mkdir()
     _init_repo(repo)
@@ -78,7 +78,7 @@ def test_real_end_to_end_dependency_remediation(tmp_path):
     subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "initial commit"], check=True)
 
     project = ProjectConfig(id="e2e_dep", name="e2e_dep", repo_path=str(repo),
-                             policy_path="config/policy.yaml")
+                             policy_path=policy_path)
     orch = build_orchestrator(db_path=str(tmp_path / "state.db"), project=project,
                                sleep_fn=lambda s: None, db_backend="sqlite")
     plan_dependency_scan(orch, project_id="e2e_dep", project_root=str(repo))

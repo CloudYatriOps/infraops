@@ -7,7 +7,9 @@ fast unit suite); `tests/test_cli_demo.py::test_demo_readiness_prints_checklist_
 already covers the CLI-level source-checkout path end to end."""
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 
 from aep.progress import demo_readiness
 
@@ -41,6 +43,35 @@ def test_skill_gate_wired_via_import_introspection():
     assert check.ok, check.detail
     # Never reads orchestrator.py off a guessed path.
     assert "orchestrator.py" not in check.detail
+
+
+def test_skill_gate_wired_survives_a_genuinely_cold_import():
+    """Real bug found and fixed in this pass, not hypothetical: importing
+    `aep.orchestrator` as the FIRST touch of its own dependency graph
+    (orchestrator -> agents -> agents.ci_diagnose_agent -> github.planner
+    -> orchestrator, a real cycle) fails with "cannot import name
+    'Orchestrator' from partially initialized module". Every real entry
+    point (aep.cli -> aep.bootstrap) coincidentally avoids this because
+    bootstrap.py imports `.agents` before `.orchestrator` - but a
+    same-process unit test can't reliably reproduce or catch a regression
+    of this, because whether it fails depends on which OTHER test ran
+    first and incidentally warmed `aep.orchestrator` already. A genuinely
+    fresh subprocess is the only way to guarantee the cold path every
+    time - reproduced live: `python -c "import aep.orchestrator"` alone
+    fails with exactly this error on this codebase."""
+    repo_root = demo_readiness._source_checkout_root()
+    assert repo_root is not None
+    env = {**os.environ, "PYTHONPATH": str(repo_root / "src")}
+    proc = subprocess.run(
+        [sys.executable, "-c",
+         "from aep.progress.demo_readiness import _check_skill_gate_wired\n"
+         "r = _check_skill_gate_wired()\n"
+         "assert r.ok, r.detail\n"
+         "print('OK')\n"],
+        env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "OK" in proc.stdout
 
 
 def test_e2e_check_reports_installed_package_validated_without_running_pytest(monkeypatch):

@@ -1,24 +1,19 @@
 # AEP — Autonomous Engineering Platform
 
-A local-first engineering and DevSecOps control plane: policy-gated task
-orchestration, a versioned skill registry, real security/dependency/
-infrastructure analysis, and cross-project intelligence — with a
-zero-config embedded PostgreSQL and a packaged web UI.
+A local-first engineering and DevSecOps control plane: project
+auto-detection, real security/infrastructure analysis, cross-project
+engineering intelligence, and a packaged web UI — with a zero-config
+embedded PostgreSQL.
 
 No PostgreSQL install. No Supabase. No remote database. No Node/npm.
+**No AI API key required** — AI providers are entirely optional (see
+[Optional AI providers](#optional-ai-providers) below).
 
 ## Install
 
 ```bash
 pip install aep-platform
 ```
-
-> **Not yet published to PyPI.** The package is built and verified but not
-> uploaded. Until then, install from a clone — identical result:
-> `git clone <this-repo-url> aep && cd aep && python -m pip install .`
->
-> Names differ on purpose: PyPI distribution `aep-platform`, Python import
-> package `aep`, CLI command `aep`. (`aep` on PyPI is an unrelated project.)
 
 Python 3.10–3.12. Not 3.13 — the embedded-PostgreSQL dependency publishes
 no 3.13 wheel yet.
@@ -29,18 +24,9 @@ no 3.13 wheel yet.
 aep
 ```
 
-Starts everything and prints where to go:
-
-```
-AEP starting...
-Local database: READY  (C:\Users\you\AppData\Local\AEP)
-Migrations:     READY
-AI Provider:    NOT_CONFIGURED
-UI:             READY
-Runtime:        READY
-
-Open: http://127.0.0.1:53017
-```
+Provisions the local database, applies migrations, and serves the API +
+packaged UI, then prints the URL to open. No password, no config file,
+no separately-installed PostgreSQL.
 
 ## Analyze an existing project
 
@@ -48,95 +34,57 @@ Open: http://127.0.0.1:53017
 aep scan /path/to/project
 ```
 
-AEP detects what the repository actually is — from evidence on disk, never
-from directory names — and runs only the checks that apply:
+AEP detects what the repository actually is — from evidence on disk,
+never from directory names — and runs only the checks that apply, each
+with a precise, non-interchangeable status (`PASS`/`FAIL`/`SKIPPED`/
+`UNAVAILABLE`/`BLOCKED`). Read-only: it never modifies, installs into, or
+deploys the target repository. The same workflow is available from the
+UI's Projects screen (Add existing project → Scan Now), and every scan
+is persisted — visible after a browser refresh or an AEP restart, not
+just in that one CLI invocation's output.
+
+## UI
+
+Open the URL `aep` prints. **Projects** is the primary workflow:
 
 ```
-Detected:
-  APPLICATION, PYTHON, TERRAFORM, CI_CD
-
-SECURITY POSTURE
-  Secrets       PASS
-  SAST          SKIPPED
-  Dependencies  PASS
-  IaC           FAIL
-  Containers    SKIPPED
+Projects → Add existing project → Scan Now → Findings / Report / Timeline
 ```
 
-Statuses are precise and not interchangeable:
+Add an existing local repository, then **Scan Now** — the UI runs the
+exact same read-only engine as `aep scan` and persists the result:
+detected capabilities, security posture, findings (click one for exact
+location/evidence/explanation), a downloadable report (JSON or
+Markdown), and a real timeline of what the scan actually did. **Rerun
+Scan** creates a new run without erasing the last one, so history and a
+before/after comparison are always available. **Delete Project** only
+removes AEP's own record — it never touches files on disk, your Git
+repository, or scan history. Dashboard, Findings, Approvals, Evidence,
+Runtime, and Providers cover the rest of the platform.
 
-| Status | Meaning |
-|---|---|
-| `PASS` / `FAIL` | applicable, ran, clean / found something |
-| `SKIPPED` | **not applicable** — no Terraform files, no Chart.yaml, etc. |
-| `UNAVAILABLE` | applicable, but this AEP install can't provide it |
-| `BLOCKED` | applicable, but an external precondition (registry, credentials) prevents it |
+## Security
 
-`aep scan` is **read-only**: it never modifies, installs into, commits to,
-or deploys the target repository. Remediation is a separate, explicit
-action. Add `--json` for machine-readable output.
+Built-in secret detection and infrastructure scanning (Terraform/
+Kubernetes/Helm) work with zero external binaries. SAST is an optional
+extra (`pip install "aep-platform[sast]"`, semgrep) since it's 45–79MB
+and not every repository needs it. Container image scanning is honestly
+reported `BLOCKED` — it needs registry access this local-first product
+does not provide, rather than being shipped broken.
 
-`aep security <path>` and `aep infra <path>` give the same read-only
-analysis filtered to just security or just infrastructure — useful when
-that's all you want the answer to. Every pre-existing command
-(`security-status`, `infra-status`, `tasks`, `events`, …) still works
-exactly as before; `scan`/`security`/`infra` are additions, not
-replacements. `aep --help` shows a short, curated command list; every
-subcommand's own `--help` is unchanged.
+## Optional AI providers
 
-## What it does
+AEP works fully without an AI provider — local engineering (detection,
+scanning, intelligence, evidence) never depends on one. AI is used only
+for AI-assisted reasoning/routing and is configured via environment
+variables (`AI_BASE_URL`, `AI_CREDENTIAL`, optional `AI_PROVIDER` label)
+pointing at your own Claude/Gemini/OpenAI/OmniRoute-compatible endpoint —
+never a credential typed into the UI or stored in the browser. Check
+status with `aep providers` or the UI's Providers screen.
 
-- Secret detection (built in — no external binary required)
-- SAST, dependency/CVE intelligence
-- Infrastructure analysis (Terraform / Kubernetes / Helm, built in)
-- Engineering health, remediation decisions, cross-project intelligence
-- Deny-by-default policy enforcement and a versioned skill registry
-- Durable execution history and evidence in local PostgreSQL + pgvector
-- Packaged web UI, served by AEP itself
+## License
 
-## Demo
-
-```bash
-aep demo run
-```
-
-```bash
-aep demo run --scenario ambiguous
-```
-
-The second one is the interesting one: given an under-specified request
-("make the database faster"), AEP refuses and asks for clarification
-rather than guessing at scope.
-
-## Diagnostics
-
-There is no `aep doctor`. The same information comes from commands that
-already exist: `aep` / `aep start` (prints database, migrations, provider,
-UI, runtime at startup), `aep status`, `aep progress`, `aep providers`,
-`aep demo readiness`, `aep --version` (or `-V`).
-
-`aep demo readiness` and `aep demo run` work the same whether you
-installed from a clone or from `pip install aep-platform` with no
-source repository present at all - neither needs `/src/`, `/tests/`, or
-a Git checkout at runtime (see BUGFIX.md BUG-0024).
-
-## External integrations (all optional)
-
-AI providers, GitHub, cloud (AWS/Azure/GCP/OCI), and Kubernetes are
-optional and require your own credentials. AEP starts and runs fully
-without any of them, and reports each honestly as `NOT_CONFIGURED`,
-`BLOCKED`, or `UNAVAILABLE` rather than pretending.
-
-## Current limitations
-
-- Not yet on PyPI (install from a clone).
-- Python 3.13 unsupported (upstream wheel gap).
-- Container image scanning is `BLOCKED` — it needs registry access and a
-  vulnerability database that cannot be shipped self-contained.
-- SAST needs the optional extra: `pip install "aep-platform[sast]"`
-  (semgrep is 45–79MB, deliberately not forced on every install).
-- Install verified on Windows; macOS/Linux wheels exist but are not
-  install-verified.
+MIT — see [LICENSE](LICENSE). Dependency license audit:
+[docs/LICENSES.md](docs/LICENSES.md).
 
 ## Documentation
 
@@ -146,6 +94,7 @@ without any of them, and reports each honestly as `NOT_CONFIGURED`,
 | Architecture & threat model | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Quick start (detailed) | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
 | Database & migrations | [docs/DATABASE.md](docs/DATABASE.md) |
-| Demo walkthrough | [docs/DEMO.md](docs/DEMO.md) · [docs/DEMO-CARD.md](docs/DEMO-CARD.md) |
 | UI guide | [docs/UI-GUIDE.md](docs/UI-GUIDE.md) |
+| Dependency licenses | [docs/LICENSES.md](docs/LICENSES.md) |
 | Known defects & fixes | [BUGFIX.md](BUGFIX.md) |
+| Release/QA demo walkthrough (developer tool, not a product feature — `aep demo readiness`/`aep demo run`) | [docs/DEMO.md](docs/DEMO.md) · [docs/DEMO-CARD.md](docs/DEMO-CARD.md) |

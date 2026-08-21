@@ -47,6 +47,39 @@ def _source_checkout_root() -> Optional[Path]:
     return None
 
 
+def _import_orchestrator_module():
+    """`aep.orchestrator` sits in a real dependency cycle:
+    `orchestrator -> agents (package) -> agents.ci_diagnose_agent ->
+    github.planner -> orchestrator`. Importing `aep.orchestrator` as the
+    very FIRST touch of that graph fails with "cannot import name
+    'Orchestrator' from partially initialized module" - Python registers
+    the not-yet-finished module in `sys.modules` before its body
+    completes, so the nested `from ..orchestrator import Orchestrator` in
+    `github/planner.py` finds the module object but not yet the class
+    defined further down in it.
+
+    Every real entry point (`aep.cli` -> `aep.bootstrap`) never hits this:
+    `bootstrap.py` imports `.agents` BEFORE `.orchestrator`, so by the
+    time it reaches its own `from .orchestrator import Orchestrator` line,
+    the nested cycle has already fully resolved `aep.orchestrator` as a
+    side effect. Reproduced live: `python -c "import aep.orchestrator"`
+    cold fails with exactly this error; `python -c "import aep.bootstrap;
+    import aep.orchestrator"` succeeds.
+
+    Rather than hardcoding that specific cycle shape here (fragile if it
+    changes later), fall back to warming via `aep.bootstrap` - the same
+    module every real entry point already depends on - only if the naive
+    import fails, so this check is order-independent regardless of
+    whatever has or hasn't been imported before it runs."""
+    try:
+        from .. import orchestrator as orchestrator_module
+        return orchestrator_module
+    except ImportError:
+        from .. import bootstrap  # noqa: F401
+        from .. import orchestrator as orchestrator_module
+        return orchestrator_module
+
+
 def _check_skill_gate_wired() -> ReadinessCheck:
     """Import/introspection based (Part 2): imports the real
     `aep.orchestrator` module and checks the actual `Orchestrator` class,
@@ -56,12 +89,14 @@ def _check_skill_gate_wired() -> ReadinessCheck:
     either case. The import is deliberately lazy (inside the function,
     not at module top) because `aep.progress` is imported from various
     entry points (including cli.py) at times `aep.orchestrator` may
-    itself be mid-import - see this module's original BUG-0024 fix notes."""
+    itself be mid-import - see this module's original BUG-0024 fix notes,
+    and `_import_orchestrator_module()` above for the real cold-import
+    circular-dependency hazard found and fixed here."""
     label = "orchestrator skill gate wired (_apply_skill_gate)"
     try:
         import inspect
 
-        from .. import orchestrator as orchestrator_module
+        orchestrator_module = _import_orchestrator_module()
 
         cls = orchestrator_module.Orchestrator
         if not hasattr(cls, "_apply_skill_gate"):
