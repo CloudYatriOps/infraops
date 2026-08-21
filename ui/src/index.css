@@ -22,7 +22,12 @@
   --pass-dim: oklch(0.72 0.15 152 / 0.16);
   --fail: oklch(0.68 0.19 27);
   --fail-dim: oklch(0.68 0.19 27 / 0.16);
-  --skipped: oklch(0.62 0.006 260);
+  /* Was 0.62 - measured 3.99:1 against its real composited badge
+     background (fails WCAG AA's 4.5:1 for this text size), and was the
+     one outlier well below the other 4 status colors' lightness
+     (0.68-0.74). Raised to bring it both into contrast compliance and
+     into the same visual family as the rest of the palette. */
+  --skipped: oklch(0.70 0.006 260);
   --skipped-dim: oklch(0.62 0.006 260 / 0.18);
   --unavailable: oklch(0.74 0.13 78);
   --unavailable-dim: oklch(0.74 0.13 78 / 0.16);
@@ -70,7 +75,20 @@ input, select, textarea, button {
   background: oklch(1 0 0 / 0.05); border: 1px solid var(--border-strong);
   border-radius: 8px; padding: 7px 10px;
 }
-input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-dim); border-color: var(--accent); }
+/* Real accessibility bug found via computed-style QA (not visible in a
+   screenshot alone - the outline WIDTH computed correctly, only its
+   STYLE was `none`, so nothing rendered): `button` was missing entirely
+   from this rule, so every button in the app (nav items, Approve/Reject,
+   Create, Refresh, View - the majority of interactive elements) had NO
+   visible keyboard-focus indicator at all (WCAG 2.1 2.4.7). Also fixed
+   the outline color: `--accent-dim` is a ~14%-opacity token meant for
+   backgrounds, not a visible outline stroke - swapped to the full-opacity
+   `--accent`. `:focus-visible` (not bare `:focus`) so a mouse click
+   doesn't show the ring, only real keyboard navigation does. */
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 button {
   cursor: pointer; font-weight: 600; color: var(--text);
   background: oklch(1 0 0 / 0.07);
@@ -118,8 +136,17 @@ button:disabled { opacity: 0.5; cursor: default; }
 /* ---- Glass surfaces -------------------------------------------------- */
 .glass {
   background: var(--surface);
+  /* BUG (found via computed-style QA, not a screenshot): esbuild's CSS
+     minifier treated the `-webkit-backdrop-filter` twin of this
+     declaration as a redundant duplicate (same value) and collapsed them
+     to keep only the vendor-prefixed one - which this product's actual
+     Chromium runtime does NOT support (`CSS.supports('-webkit-backdrop-
+     filter', ...)` is false here; only the unprefixed property works).
+     Result: the entire glass blur effect silently never rendered. Safari
+     unprefixed backdrop-filter since 16.4 (2023), so the vendor-prefixed
+     twin is legacy-only and actively harmful to keep - removed, not
+     re-added after the unprefixed property. */
   backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow:
