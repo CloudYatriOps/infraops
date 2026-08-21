@@ -1,0 +1,66 @@
+name: CI
+
+# Required status check for main's branch protection (see CONTRIBUTING.md).
+# Every step below uses the project's own real commands - nothing invented
+# for CI. Full suite (not a subset) since AEP's own testing policy runs the
+# full suite once per stabilized change, and CI is exactly that point.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install AEP (editable, all optional extras + dev)
+        run: python -m pip install -e ".[all,dev]"
+
+      - name: Python syntax/compile check
+        run: python -m compileall -q src
+
+      - name: Full test suite
+        # Real local PostgreSQL via `pgserver` (zero-config, no service
+        # container needed) - the same backend `pip install aep-platform`
+        # gives an end user, see src/aep/db/local_postgres.py.
+        run: python -m pytest -q
+
+      - name: Built-in security scan of this repository (dogfooding `aep security`)
+        # Advisory, not a hard gate: this repo's OWN source necessarily
+        # contains secret-shaped text (src/aep/redaction.py's own
+        # detection patterns, src/aep/demo_template/config.py's
+        # intentional demo fixture placeholder key) and docs/BUGFIX.md
+        # entries describing past fake-credential incidents by name -
+        # confirmed by hand, every current FAIL is one of those, not a
+        # real secret. A hard PASS/FAIL gate here would make this check
+        # permanently red for reasons that are not incidents. Printed in
+        # full so a reviewer sees it on every PR; does not fail the job.
+        continue-on-error: true
+        run: python -m aep.cli security . --json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: UI typecheck and build
+        working-directory: ui
+        run: |
+          npm ci
+          npx tsc --noEmit
+          VITE_API_BASE= npx vite build --outDir ../src/aep/ui_dist --emptyOutDir
+
+      - name: Build distribution (wheel + sdist)
+        run: |
+          python -m pip install build twine
+          python -m build
+
+      - name: twine check
+        run: python -m twine check dist/*
