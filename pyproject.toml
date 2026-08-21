@@ -7,7 +7,7 @@
 # unaffected (see [project.scripts] below and the `all` extra's
 # self-reference, both of which must use THIS name, not the import name).
 name = "aep-platform"
-version = "0.1.0"
+version = "0.1.1"
 description = "AEP: a local-first autonomous engineering and DevSecOps platform - policy-gated task orchestration, a versioned skill registry, and real security/dependency/infrastructure intelligence, backed by a zero-config embedded PostgreSQL. No PostgreSQL install, no Supabase, no remote database, no npm - `pip install aep-platform` then `aep`."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"

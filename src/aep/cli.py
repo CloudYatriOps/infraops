@@ -16,7 +16,6 @@ breaks; this is called out explicitly here and in the Phase 3 report.
 from __future__ import annotations
 
 import argparse
-import importlib.metadata
 import json
 import os
 import subprocess
@@ -24,6 +23,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from . import __version__
 from .bootstrap import build_orchestrator
 from .models import ProjectConfig, TaskStatus
 from .progress.calculator import compute_progress, record_phase_verified
@@ -45,16 +45,6 @@ from .demo import run_ambiguous_demo, run_demo
 from .progress.demo_readiness import compute_demo_readiness, render_demo_readiness
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-
-
-def _aep_version() -> str:
-    """Single source of truth: package metadata, generated from
-    pyproject.toml's `[project].version` at build time. Never a
-    duplicated literal - see BUGFIX.md BUG-0024 Part 9."""
-    try:
-        return importlib.metadata.version("aep-platform")
-    except importlib.metadata.PackageNotFoundError:
-        return "unknown (not installed as a package)"
 
 
 def cmd_run_fix_bug(args: argparse.Namespace) -> None:
@@ -1516,7 +1506,7 @@ Every subcommand from earlier releases still works exactly as before -
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="aep")
-    parser.add_argument("--version", "-V", action="version", version=f"aep {_aep_version()}")
+    parser.add_argument("--version", "-V", action="version", version=f"aep {__version__}")
     parser.add_argument("--db", default="aep_state.db")
     parser.add_argument("--policy", default=DEFAULT_POLICY_PATH)
     sub = parser.add_subparsers(dest="command", required=True)
