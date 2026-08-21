@@ -1,113 +1,80 @@
 # Quick Start
 
-This is the exact, verified sequence to run AEP locally end-to-end. Every
-command below was run in this development sandbox during the final
-release-packaging pass (BUG-0008/BUG-0009). If a step here disagrees with
-the top-level `README.md` Quick Start, `README.md` is the summary and this
-file is the same steps with more detail — they describe the same flow.
+This is the real, verified sequence to run AEP end to end. If a step here
+disagrees with the top-level `README.md` Quick Start, `README.md` is the
+summary and this file is the same flow with more detail.
 
-## Dependency source of truth
-
-`pyproject.toml` is the **only** canonical dependency declaration. There is
-no `requirements.txt` in this repo, deliberately — a second, separately
-maintained list would silently drift from `pyproject.toml` the first time
-one file was edited and the other wasn't (this is the same failure mode
-BUG-0008 already produced once, at the extras level). If your tooling
-needs a `requirements.txt`-shaped file, derive it on demand rather than
-hand-maintaining one:
-
-```bash
-pip install -e ".[dev,api,anthropic]"
-pip freeze > requirements.txt   # optional, derived, not committed
-```
+**Distribution status: NOT on PyPI.** `pip install aep-platform` / `pip
+install aep` do not download anything — nothing has ever been published.
+The project's real name (`pyproject.toml`) is `aep`. Today, install from
+this repository or from a built wheel artifact.
 
 ## 1. Clone
 
 ```bash
-git clone <this-repo-url> aep-platform && cd aep-platform
+git clone <this-repo-url> aep && cd aep
 ```
 
-## 2. Virtualenv
+## 2. Install
+
+No virtualenv activation required for normal use — `pip install` on any
+Python 3.10–3.12 works directly (3.13 is not supported: `pgserver`, the
+embedded-PostgreSQL dependency, publishes no 3.13 wheel yet).
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m pip install .
 ```
 
-## 3. Install
-
-Base install includes `psycopg2-binary`/`pgvector` (the default backend is
-Postgres — see BUG-0004 in `BUGFIX.md`, they are core `dependencies`, not
-optional). Add extras for the capabilities you need:
+This installs `psycopg2-binary`, `pgvector`, and `pgserver` (a real,
+bundled PostgreSQL 16.2 + pgvector binary) as core dependencies — nothing
+extra to add for the local database or the demo. Optional extras add
+capabilities that don't affect local startup:
 
 | Extra | Adds | Capability |
 |---|---|---|
 | `dev` | `pytest` | running the test suite |
-| `api` | `flask` | the Stage D REST API |
+| `api` | `flask` | the product API |
 | `anthropic` | `anthropic` | real `AnthropicProvider` (code_fix) |
-| `dependency-scanning` | `pip-audit` | Phase 3 CVE scanning |
-| `infra` | `boto3`, `bc-python-hcl2`, `kubernetes-validate` | cloud adapter, Terraform HCL2 parse, K8s manifest validation (BUG-0008) |
+| `dependency-scanning` | `pip-audit` | CVE scanning |
+| `infra` | `boto3`, `bc-python-hcl2`, `kubernetes-validate` | cloud adapter, Terraform HCL2 parse, K8s manifest validation |
 | `sbom` | `cyclonedx-python-lib` | SBOM generation |
 | `github` | `requests` | real GitHub API client |
+| `all` | every extra above | everything at once |
 
 ```bash
-pip install -e ".[dev,api,anthropic,infra,sbom,github,dependency-scanning]"
+python -m pip install ".[all,dev]"
 ```
 
-Minimal demo-only install: `pip install -e ".[dev,api,anthropic]"`.
-
-## 4. Environment
+## 3. Run it
 
 ```bash
-cp .env.example .env
-# edit .env - at minimum set AEP_PG_PASSWORD
-export AEP_PG_PASSWORD=<your-local-postgres-password>
+aep
 ```
 
-## 5. PostgreSQL
+No PostgreSQL install, no Supabase, no database password, no
+`AEP_PG_PASSWORD`, no `DATABASE_URL`, no npm. `aep` (no subcommand)
+provisions/reuses AEP's own local embedded PostgreSQL (via `pgserver`)
+under your platform's AEP data directory, applies migrations, starts the
+API, and serves the pre-built UI — printing progress as it goes:
 
-```bash
-service postgresql start   # or your platform's equivalent (brew services, systemctl, Docker, ...)
-pg_isready                 # confirm "accepting connections" before continuing
+```
+AEP starting...
+Local database: READY  (C:\Users\you\AppData\Local\AEP)
+Migrations:     READY
+AI Provider:    NOT_CONFIGURED  (OmniRoute is not configured: missing env var(s) ['AI_BASE_URL', 'AI_CREDENTIAL'])
+UI:             READY
+Runtime:        READY
+
+Open: http://127.0.0.1:53017
 ```
 
-Database/user/extension setup is in `docs/DATABASE.md` — this file assumes
-a `aep`/`aep_platform` database already exists with `pgvector` enabled.
+## 4. Open the UI
 
-## 6. Migrations
+Open the printed URL in a browser. Dashboard, Projects, Task Execution,
+Findings, Incidents, Approvals, Runtime, Evidence, Providers, and the
+Phase 10 intelligence panels are all there — see `docs/UI-GUIDE.md`.
 
-```bash
-python3 - <<'PY'
-import psycopg2
-from aep.db import migrations
-conn = psycopg2.connect(
-    f"host=localhost port=5432 user=aep password={__import__('os').environ['AEP_PG_PASSWORD']} dbname=aep_platform"
-)
-migrations.apply_pending(conn)
-print(migrations.status(conn))
-PY
-```
-
-## 7. Start the API
-
-```bash
-export AEP_API_DEV_MODE=1   # local dev only - disables API-key auth, prints a warning
-python3 -c "from aep.api.app import create_app; create_app().run(port=5000)"
-```
-
-API is now at `http://localhost:5000`.
-
-## 8. Start the UI
-
-```bash
-cd ui
-npm ci          # NOT npm install - package-lock.json exists, ci is the reproducible command
-npm run dev
-```
-
-Open `http://localhost:5173` in a browser.
-
-## 9. Run the demo
+## 5. Run the demo
 
 ```bash
 aep demo readiness
@@ -117,3 +84,44 @@ aep demo run --scenario ambiguous
 
 See `docs/DEMO-CARD.md` for a one-page cheat sheet and
 `docs/DEMO-SCENARIOS.md` for example prompts.
+
+## Wheel install (alternative to the source checkout)
+
+```bash
+python -m pip install build
+python -m build --wheel
+python -m pip install dist/aep-0.1.0-py3-none-any.whl
+aep
+```
+
+## Pointing AEP at your own PostgreSQL instead
+
+Setting `AEP_POSTGRES_DSN` (or any `AEP_PG_HOST`/`AEP_PG_PORT`/
+`AEP_PG_USER`/`AEP_PG_PASSWORD`/`AEP_PG_DBNAME`/`AEP_PG_SSLMODE`) opts
+AEP OUT of its embedded local database and onto a Postgres you manage
+yourself — a shared dev server, Supabase, cloud Postgres, anything. In
+that mode migrations are not applied automatically; `docs/DATABASE.md`
+and `scripts/bootstrap.sh` cover that path, including applying them
+yourself. This is optional and not part of the normal local flow above.
+
+## Development setup
+
+Contributing to AEP itself, rather than using it, additionally needs:
+
+```bash
+python -m pip install -e ".[all,dev]"
+pytest
+```
+
+Editing the UI needs Node (only for development — the packaged product
+needs none):
+
+```bash
+cd ui && npm ci && npm run dev
+```
+
+After a UI change, rebuild the packaged assets so they ship in the wheel:
+
+```bash
+cd ui && VITE_API_BASE= npx vite build --outDir ../src/aep/ui_dist --emptyOutDir
+```

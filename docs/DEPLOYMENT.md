@@ -7,7 +7,7 @@ a real deployment would add.
 ## Clean local deployment sequence
 
 ```bash
-git clone <repo> && cd aep-platform
+git clone <repo> && cd aep
 
 # Install (installs psycopg2/pgvector as required deps - BUG-0004 fix)
 pip install -e .

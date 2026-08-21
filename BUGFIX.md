@@ -1,5 +1,71 @@
 # Bug Fixes
 
+## BUG-0021: README documented `pip install aep-platform` as a working command against a package that was never published
+
+- **Date:** 2026-08-21
+- **Component:** `README.md`, `docs/QUICKSTART.md`, `docs/DEMO-CARD.md`. Found by the user on their own Windows machine running the documented command verbatim.
+
+### Symptom
+```
+$ pip install aep-platform
+ERROR: Could not find a version that satisfies the requirement aep-platform (from versions: none)
+ERROR: No matching distribution found for aep-platform
+```
+`pyproject.toml`'s actual project name is `aep` (not `aep-platform`), and
+neither name has ever been uploaded to PyPI or any other index. The Quick
+Start sections nonetheless documented `pip install aep-platform` as the
+normal first command, `docs/QUICKSTART.md` still described a pre-zero-
+config manual-Postgres/venv/npm flow (`service postgresql start`,
+`export AEP_PG_PASSWORD=...`, a hand-run migration script, `npm ci`), and
+`docs/DEMO-CARD.md` matched it - none of which reflected the local-first
+product built in the two prior sessions.
+
+### Impact
+Following the documented Quick Start on a genuinely fresh machine fails
+on the very first command, before ever reaching the actually-working
+zero-config local install. This is exactly the "documentation must
+reflect actual source behavior" rule the project holds itself to, and it
+had drifted.
+
+### Root cause
+The Quick Start was written aspirationally (describing where the product
+was headed - a published package) rather than describing what
+`pyproject.toml`/the CLI actually do today. `docs/QUICKSTART.md` and
+`docs/DEMO-CARD.md` were not updated when the zero-config local database
+and one-command `aep start` work landed in prior sessions, so they kept
+documenting the old manual flow on top of the wrong install command.
+
+### Fix
+- README: replaced `pip install aep-platform` with the verified local
+  flow (`git clone` + `python -m pip install .` + `aep`), added an
+  explicit "Distribution status: NOT on PyPI" callout, and a "Current
+  distribution status" table (local source: READY, wheel: READY, PyPI:
+  NOT PUBLISHED) plus the verified wheel-build/install commands.
+- `docs/QUICKSTART.md` and `docs/DEMO-CARD.md` rewritten around the same
+  real flow - no manual PostgreSQL/venv/npm steps in the normal path;
+  those remain, correctly, under "Development setup"/pointing at your own
+  Postgres.
+- Fixed 4 remaining `aep-platform` checkout-directory references in
+  `README.md`/`docs/DEPLOYMENT.md` for consistency (cosmetic, not
+  functional - `git clone <url> <name>` works with any directory name).
+
+### Tests
+None applicable (documentation only). Re-verified live on the reporting
+user's actual machine: `python -m pip install .` from the local checkout
+succeeded on their real Python 3.12.10 interpreter, `aep` resolved on
+their PATH, and `aep demo run` succeeded with every `AEP_PG_*`/
+`AEP_POSTGRES_DSN` var unset - `Persistence backend: postgres`, no
+password prompt, no separately-installed PostgreSQL.
+
+### Lesson
+A local-first architecture change is not finished until every doc that
+tells a new user how to start is re-verified against the ACTUAL current
+commands - not just the primary README section that happened to get
+updated. Aspirational install commands ("this is what we want the final
+UX to be") must never be written as if they already work; a user running
+them verbatim is the actual, and correct, test of documentation truth.
+
+
 ## BUG-0019: bare interpreter/binary names in production code ran against the WRONG Python
 
 - **Date:** 2026-08-21

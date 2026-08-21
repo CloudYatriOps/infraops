@@ -1,26 +1,37 @@
 # AEP Demo Cheat Sheet
 
+Not on PyPI — install from this repo or a built wheel (see
+`docs/QUICKSTART.md`).
+
+**INSTALL**
+```
+git clone <this-repo-url> aep && cd aep
+python -m pip install .
+```
+
 **START**
 ```
-service postgresql start   # if not already running
-export AEP_PG_PASSWORD=aep_local_dev_only
+aep
+```
+No PostgreSQL install, no Supabase, no password, no npm. This starts the
+local database, applies migrations, and serves the API + UI, then prints
+the URL to open.
+
+**OPEN UI**
+```
+Open the URL `aep` printed (e.g. http://127.0.0.1:53017).
 ```
 
 **RUN DEMO**
 ```
 aep demo readiness
 aep demo run
-aep demo run --scenario ambiguous
 ```
 
-**OPEN UI**
+**RUN AMBIGUOUS DEMO**
 ```
-export AEP_API_DEV_MODE=1
-python3 -c "from aep.api.app import create_app; create_app().run(port=5000)"
-# in another shell:
-cd ui && npm ci && npm run dev
+aep demo run --scenario ambiguous
 ```
-→ http://localhost:5173
 
 **TRY**
 - `aep demo run` — normal, happy-path: recon → code_fix → security_scan

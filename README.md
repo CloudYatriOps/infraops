@@ -63,10 +63,22 @@ PostgreSQL 16.2 + pgvector binaries and AEP manages that local instance
 itself; the React UI ships pre-built inside the package and is served by
 AEP's own backend.
 
+> **Distribution status: NOT on PyPI.** `pip install aep-platform` does
+> not work today and never has — that name has never been published
+> anywhere. The package's real name (see `pyproject.toml`) is `aep`. The
+> current release is installed from this repository or from a built
+> wheel artifact; see "Current distribution status" below for exactly
+> what that means and what doesn't exist yet.
+
 ```bash
-pip install aep-platform
+git clone <this-repo-url> aep && cd aep
+python -m pip install .
 aep
 ```
+
+(`python3 -m pip install .` on macOS/Linux if `python` isn't aliased to
+Python 3.) No venv activation is required for normal use — `pip install`
+on any Python 3.10–3.12 works directly.
 
 `aep` (with no subcommand) starts everything and prints where to go:
 
@@ -123,6 +135,30 @@ only be another thing to keep in sync:
 Statuses are reported as `OK`/`READY`, `WARN`, `BLOCKED`, `UNAVAILABLE`,
 `NOT_CONFIGURED` or `FAIL` — never a fabricated success.
 
+### Current distribution status
+
+| Channel | Status |
+|---|---|
+| Local source install (`pip install .` from this repo) | **READY** — verified |
+| Built wheel install (`pip install <wheel-file>`) | **READY** — verified |
+| PyPI (`pip install aep`, `pip install aep-platform`, or any other name) | **NOT PUBLISHED** — nothing has ever been uploaded |
+
+To install from a wheel instead of the source checkout, build it once
+(from a clone) and install the resulting file — there is no public URL
+to fetch it from:
+
+```bash
+python -m pip install build
+python -m build --wheel
+python -m pip install dist/aep-0.1.0-py3-none-any.whl
+aep
+```
+
+**Future (not done, not scheduled this release):** publishing the
+verified wheel to a package index (public or private) so `pip install
+aep` works without a local checkout. Nothing is published without an
+explicit decision to do so.
+
 ### Platform support
 
 | Platform | Status |
@@ -145,7 +181,7 @@ reports only what was actually executed.
 PostgreSQL data and logs live under `<AEP data dir>/postgres/`.
 `AEP_DATA_DIR` overrides the location.
 
-`pip uninstall aep-platform` does **not** delete this directory.
+`pip uninstall aep` does **not** delete this directory.
 Reinstalling or upgrading reconnects to the same database with all
 history intact (both verified live — see `handoff.md`). To discard your
 data, delete the directory yourself; AEP never does it for you.
@@ -163,7 +199,7 @@ Working on AEP itself (rather than using it) needs the source checkout,
 and Node only if you are changing the UI:
 
 ```bash
-git clone <this-repo-url> aep-platform && cd aep-platform
+git clone <this-repo-url> aep && cd aep
 ```
 
 ```bash
@@ -278,7 +314,7 @@ for GitHub's git storage. Pointing this at a real repo needs only
 ## Quickstart
 
 ```bash
-cd aep-platform
+cd aep  # the checkout directory from `git clone ... aep`
 pip install -e .[dev]                       # add [dev,anthropic] for the anthropic SDK,
                                              # [dependency-scanning] for pip-audit
 pytest -v                                   # full suite (338 tests as of Phase 5); most are fully
@@ -297,7 +333,7 @@ printf 'def add(a, b):\n    return a - b  # bug\n' > app.py
 printf 'from app import add\ndef test_add():\n    assert add(2, 3) == 5\n' > test_app.py
 git add -A && git commit -m init
 
-cd /path/to/aep-platform
+cd /path/to/aep  # this repo checkout
 python -m aep.cli --db /tmp/demo_state.db run-fix-bug \
   --project demo --repo /tmp/demo --file app.py \
   --description "add() subtracts instead of adding"
