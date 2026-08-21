@@ -39,6 +39,9 @@ export const api = {
   listScans: (projectId: string) => request(`/projects/${projectId}/scans`),
   getScan: (projectId: string, scanId: string) => request(`/projects/${projectId}/scans/${scanId}`),
   getReport: (projectId: string) => request(`/projects/${projectId}/report`),
+  // Trust P0.6: read-only projection over the same task/evidence data
+  // getTask/taskEvidence already expose - see src/aep/trust.py.
+  getTaskTrust: (taskId: string) => request(`/tasks/${taskId}/trust`),
   getReportMarkdown: async (projectId: string): Promise<string> => {
     const headers: Record<string, string> = {}
     if (API_KEY) headers['Authorization'] = `Bearer ${API_KEY}`

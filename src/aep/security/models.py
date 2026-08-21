@@ -189,6 +189,11 @@ class SecurityScanRecord:
     findings: list[SecurityFinding] = field(default_factory=list)
     raw_output_ref: Optional[str] = None
     note: str = ""  # why exit_code/finding_count are 0 when availability != AVAILABLE
+    # Trust P0.3: a scanner that ran but produced output it could not parse
+    # must never be reported as "0 findings" (indistinguishable from a real
+    # clean scan). Set this instead of silently defaulting finding_count to
+    # 0 - see scan.py::_from_record, which treats this as FAIL, never PASS.
+    parse_error: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -198,4 +203,5 @@ class SecurityScanRecord:
             "exit_code": self.exit_code, "finding_count": self.finding_count,
             "findings": [f.to_dict() for f in self.findings],
             "raw_output_ref": self.raw_output_ref, "note": self.note,
+            "parse_error": self.parse_error,
         }

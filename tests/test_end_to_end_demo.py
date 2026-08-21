@@ -84,7 +84,10 @@ def test_security_scan_blocks_downstream_tasks_on_detected_secret(
 
     events = orch.store.query_events(project_id="demo")
     assert any(e.action == "human_required" for e in events)
-    scan_evidence = tasks["security_scan"].evidence[0]
+    # Trust P0.4: the now-default-on skill gate prepends its own
+    # "skill_registry" Evidence entry ahead of the scanner's - find the
+    # scanner's evidence by source rather than assuming index 0.
+    scan_evidence = next(e for e in tasks["security_scan"].evidence if e.source != "skill_registry")
     assert scan_evidence.exit_code == 1
     assert "AKIAABCD1234EFGH5678" not in scan_evidence.summary  # full secret never persisted, even redacted
 

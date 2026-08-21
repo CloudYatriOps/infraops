@@ -25,6 +25,7 @@ from ..operations.memory import list_incidents
 from ..runtime.status import build_runtime_status_payload
 from ..cli import _build_providers_payload
 from .. import scan_lifecycle
+from .. import trust
 from . import auth
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -725,6 +726,21 @@ def create_app(db_backend: Optional[str] = None) -> Flask:
         if scope_check:
             return scope_check
         return jsonify(json.loads(task.to_json()))
+
+    @app.get("/tasks/<task_id>/trust")
+    def task_trust(task_id: str):
+        """Trust P0.6: the Trust Contract read-model for one task, assembled
+        entirely from the same Task/Event data `get_task`/`task_evidence`
+        above already expose - no new source of truth."""
+        task = app.config["AEP_STORE"].get_task(task_id)
+        if task is None:
+            return jsonify({"error": "not found"}), 404
+        scope_check = _require_project_scope(task.project_id)
+        if scope_check:
+            return scope_check
+        events = app.config["AEP_STORE"].query_events(project_id=task.project_id, task_id=task_id)
+        contract = trust.build_trust_contract(task, events=events)
+        return jsonify(contract.to_dict())
 
     @app.get("/tasks/<task_id>/evidence")
     def task_evidence(task_id: str):

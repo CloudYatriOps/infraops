@@ -57,8 +57,12 @@ def scan(manifest: DependencyManifest, project_root: str, run_shell) -> ScanReco
     findings: list[VulnerabilityFinding] = []
     try:
         data = json.loads(result.get("stdout") or "{}")
-    except json.JSONDecodeError:
-        data = {}
+    except json.JSONDecodeError as exc:
+        # Trust P0.3: malformed output must never read as "0 vulnerabilities".
+        # scan.py::_dependency_result already treats a raised exception here
+        # as FAIL, never PASS - so raise rather than silently defaulting to
+        # an empty result (see BUGFIX.md).
+        raise RuntimeError(f"pip-audit output was not valid JSON: {exc}") from exc
 
     for dep in data.get("dependencies", []):
         pkg = dep.get("name", "")

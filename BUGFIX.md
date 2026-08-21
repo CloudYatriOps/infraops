@@ -1,5 +1,86 @@
 # Bug Fixes
 
+## BUG-0027: malformed/unparseable scanner output could read as a clean PASS
+
+- **Date:** 2026-08-22
+- **Component:** `src/aep/scan.py::_from_record` (the posture choke point every `SecurityScanRecord`-based analyzer routes through) plus four scanners that feed it - `security/scanners/{gitleaks,semgrep,checkov}_scanner.py`, `infra/scanners/checkov_k8s_scanner.py` - and `dependency/scanners/pip_audit_scanner.py` (feeds `scan.py::_dependency_result` directly). Found while implementing the Trust-First Architecture Review's P0.3 invariant ("scanner failure must never become PASS"), not assumed - confirmed by reading each scanner's own malformed-JSON handling, not by inference from the invariant's description.
+
+### Symptom
+None of these scanners crash or report an error visibly. A scanner whose
+subprocess produced output AEP could not parse (a truncated/non-JSON
+report file, or a JSON decode error) silently continued with an empty
+result set. `_from_record` then saw `availability=AVAILABLE,
+finding_count=0` - indistinguishable from a genuinely clean scan - and
+reported **PASS**. `gitleaks_scanner.py` had the sharpest version: if
+gitleaks' own exit code said "leaks found" (exit 1) but its JSON report
+file failed to parse, the scanner still reported 0 findings.
+`pip_audit_scanner.py` had the same shape feeding `_dependency_result`
+directly: `except json.JSONDecodeError: data = {}` silently turned "could
+not parse" into "0 vulnerabilities," which `_dependency_result` reports
+as `AnalyzerStatus.PASS`.
+
+### Root cause
+`SecurityScanRecord` had no way to express "the scanner ran, but its
+output was unparseable" as distinct from "the scanner ran and found
+nothing." Three of the four `SecurityScanRecord`-based scanners
+(`checkov_scanner.py`, `semgrep_scanner.py`, `checkov_k8s_scanner.py`)
+already detected the parse failure and wrote a `note` explaining it -
+but `_from_record` never inspected `note`, only `availability` and
+`finding_count`, so the honest note was silently discarded by the one
+function that decides PASS/FAIL/UNAVAILABLE/BLOCKED.
+`gitleaks_scanner.py` didn't even get that far: its `except
+json.JSONDecodeError: raw_findings = []` had no signal to discard in the
+first place. `pip_audit_scanner.py`'s `ScanRecord` model (a different,
+ecosystem-specific dataclass) has no availability/parse-error concept at
+all - it just returned an empty finding list either way.
+
+### Fix
+Added `SecurityScanRecord.parse_error: bool = False`. `_from_record` now
+checks it FIRST (before `finding_count`, right after the
+availability checks) and returns `AnalyzerStatus.FAIL` whenever it's set,
+regardless of `finding_count` - malformed output is never a clean scan.
+The three scanners that already built a "did not return valid JSON"
+record now also set `parse_error=True` on it. `gitleaks_scanner.py`'s
+JSONDecodeError branch now returns a dedicated `parse_error=True` record
+instead of silently zeroing `raw_findings`. `pip_audit_scanner.py`'s
+JSONDecodeError branch now raises instead of swallowing to `data = {}` -
+`scan.py::_dependency_result` already wraps this call in
+`except Exception: return AnalyzerResult(..., AnalyzerStatus.FAIL, ...)`
+(added for a prior, similar IaC-scanner bug - see that function's own
+docstring), so the fix reuses an existing, already-correct error path
+rather than adding a new one.
+
+Two related scanners not wired into `scan.py`'s posture computation today
+(`security/scanners/trivy_scanner.py`'s dependency-scanning sibling
+`dependency/scanners/npm_audit_scanner.py`, which has the identical
+`except json.JSONDecodeError: data = {}` pattern) were left unchanged -
+out of scope for this pass since they don't feed `security_readiness()`
+or `_dependency_result` today; flagged here rather than silently fixed
+so it isn't mistaken for "already covered."
+
+### Tests
+- `tests/test_trust_p0.py::test_malformed_scanner_output_is_never_pass`,
+  `test_genuine_zero_findings_is_still_pass`,
+  `test_scanner_unavailable_is_never_pass`,
+  `test_scanner_blocked_is_never_pass`,
+  `test_scanner_failed_with_findings_is_fail_not_pass` - all pass.
+- `tests/test_capabilities_and_scan.py`, `tests/test_scan_lifecycle.py`:
+  re-run after the fix, no regressions (18 passed).
+- Real repository check: `aep scan` against
+  `C:\Users\KaranParmar\Github\WINFOTEST\winfotest-infra` produces byte-
+  for-byte the same Detected/Security/Finding output as before this fix
+  (this repo's scan doesn't exercise gitleaks/semgrep/checkov, so the fix
+  is inert here by construction - included as a no-regression check, not
+  as proof of the fix itself).
+
+### Lesson
+An honest `note` field is not the same as an honest return value. Three
+of four scanners already did the hard part (detecting and describing the
+parse failure) and it was silently thrown away at the one shared choke
+point that decides PASS/FAIL. A "never let X become Y" invariant has to
+be enforced as a real branch in the function that computes the result,
+not assumed from individual callers each trying to do the right thing.
+
 ## BUG-0026: drift detector flagged a legitimate migration-added column as unauthorized drift
 
 - **Date:** 2026-08-21

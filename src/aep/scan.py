@@ -131,6 +131,14 @@ def _from_record(name: str, record) -> AnalyzerResult:
     if record.availability is not ScannerAvailability.AVAILABLE:
         return AnalyzerResult(name, AnalyzerStatus.UNAVAILABLE,
                               record.note or "scanner not available in this installation")
+    # Trust P0.3 invariant: malformed/unparseable scanner output is NEVER a
+    # clean scan, regardless of finding_count. A scanner whose output we
+    # could not parse ran but produced nothing verifiable - reporting PASS
+    # here would be indistinguishable from a real clean result.
+    if getattr(record, "parse_error", False):
+        return AnalyzerResult(name, AnalyzerStatus.FAIL,
+                              record.note or "scanner output could not be parsed - "
+                                             "result unknown, treated as a failure")
     if record.finding_count:
         return AnalyzerResult(name, AnalyzerStatus.FAIL,
                               f"{record.finding_count} finding(s)",

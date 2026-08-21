@@ -4398,3 +4398,39 @@ tests were touched this pass: **(100.0+100.0+83.3+93.3+82.4+100.0+100.0+90.9+94.
 No BUGFIX.md entry - no genuine defect was found in the progress engine
 itself; the fix was in roadmap data (duplicate capability accounting),
 not code.
+
+## §49 Trust-First Foundation (P0): Trust Contract, verification status, scanner invariant, skill-gate default-on
+
+Implements P0 only from the approved Trust-First Architecture Review -
+a read-model over existing data, not a new engine. Full rationale and
+file list: see `handoff.md`'s "Trust-First Foundation (P0)" section and
+`BUGFIX.md` BUG-0027 for the real defect found while implementing the
+scanner invariant. Summary:
+
+- `src/aep/trust.py` (new): `build_trust_contract(task, events)` - a
+  pure projection over `Task.evidence` + `Event` rows, answering the
+  review's 18-question Trust Contract with no new table. Four
+  verification states (`VERIFIED`/`PARTIALLY_VERIFIED`/`UNVERIFIED`/
+  `CONTRADICTED`) replace any numeric-confidence-as-headline pattern;
+  `not_verified` is always explicit. `compute_trust_level` deterministically
+  classifies `L0`/`L1`/`L2` (L3-L5 out of scope for this pass) from real
+  Task/policy/skill state only - never from AI-authored text.
+- `GET /tasks/<id>/trust` (`src/aep/api/app.py`) exposes it via the
+  existing Task API convention.
+- `scan.py::_from_record` now treats `SecurityScanRecord.parse_error`
+  (new field) as an automatic `FAIL`, checked before `finding_count` -
+  the structural form of "scanner failure must never become PASS,"
+  rather than relying on every caller getting it right (BUG-0027).
+- `bootstrap.py::build_orchestrator` now wires a real, canonical-skill-
+  seeded `SkillRegistry` by default (`skill_gate_enabled=True`), closing
+  the gap where L2+ mutating task types could run without their
+  required skill ever resolving; `skill_gate_enabled=False` is the
+  explicit, deliberate opt-out.
+- UI: a minimal Trust section on the existing Project Detail scan view
+  (`ui/src/pages.tsx`) - not the full Trust Dashboard the review
+  describes (P1/P2 work).
+
+Deliberately not touched this pass: the AI-gateway stack consolidation,
+reliability-metrics instrumentation, trust degradation/recovery
+automation, Event hash-chaining, and L3+ - all explicitly out of scope
+per the review's P0 boundary.

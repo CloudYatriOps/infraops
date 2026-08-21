@@ -62,6 +62,17 @@ removes AEP's own record — it never touches files on disk, your Git
 repository, or scan history. Dashboard, Findings, Approvals, Evidence,
 Runtime, and Providers cover the rest of the platform.
 
+## Trust
+
+AEP does not ask you to trust a scan or an AI output — it shows you what
+was verified and what was not. Every scan's Project Detail page has a
+**Trust** section: a Trust Level (`L0` suggestion, `L1` verified
+recommendation, or `L2` verified remediation — `L3`+ is not implemented
+yet), a Verification state (`VERIFIED`/`PARTIALLY_VERIFIED`/`UNVERIFIED`/
+`CONTRADICTED` — never a numeric confidence headline), and an explicit
+list of what was **not** checked. See `src/aep/trust.py` and
+`docs/UI-GUIDE.md`.
+
 ## Security
 
 Built-in secret detection and infrastructure scanning (Terraform/

@@ -101,7 +101,7 @@ def scan(project_root: str, run_shell) -> SecurityScanRecord:
         return SecurityScanRecord(
             scanner=SCANNER_ID, scanner_version=tool_version, category=CATEGORY,
             scanned_at=scanned_at, target=project_root, availability=ScannerAvailability.AVAILABLE,
-            exit_code=result.get("exit_code", -1), finding_count=0, findings=[],
+            exit_code=result.get("exit_code", -1), finding_count=0, findings=[], parse_error=True,
             note=f"checkov did not return valid JSON: {(result.get('stderr') or '')[:300]}",
         )
     if isinstance(data, list):
