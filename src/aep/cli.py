@@ -922,6 +922,22 @@ def _build_providers_payload(args: argparse.Namespace) -> dict:
     return payload
 
 
+def cmd_scan(args: argparse.Namespace) -> None:
+    """`aep scan <path>` - capability-routed, READ-ONLY project analysis.
+
+    Detects what the repository actually is, runs only the analyzers that
+    apply, and reports precisely why each of the rest did not run. Makes
+    no change of any kind to the target repository.
+    """
+    from .scan import render_report, scan_project
+
+    report = scan_project(args.path)
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(render_report(report))
+
+
 def cmd_start(args: argparse.Namespace) -> None:
     """One-command local product start: local Postgres -> pgvector ->
     migrations -> API -> packaged UI, then print the URL. Every step is
@@ -1736,6 +1752,13 @@ def main(argv=None) -> int:
                                     help="restrict to a single project id (default: all projects)")
     p_healthscore_cmd.add_argument("--json", action="store_true")
     p_healthscore_cmd.set_defaults(func=cmd_health_score)
+
+    p_scan = sub.add_parser("scan", help="analyze a project: auto-detects what the repository "
+                                          "is and runs only the applicable checks (read-only)")
+    p_scan.add_argument("path", nargs="?", default=".",
+                         help="path to the repository to analyze (default: current directory)")
+    p_scan.add_argument("--json", action="store_true", help="machine-readable output")
+    p_scan.set_defaults(func=cmd_scan)
 
     p_start = sub.add_parser("start", help="one-command local product: local database + "
                                             "migrations + API + packaged UI, then print the URL")

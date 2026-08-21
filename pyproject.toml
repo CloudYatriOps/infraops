@@ -81,12 +81,32 @@ infra = [
 sbom = ["cyclonedx-python-lib>=7.0"]
 # src/aep/github/client.py - real GitHub API HTTP client.
 github = ["requests>=2.31"]
+# OPTIONAL heavy scanners. Deliberately NOT core dependencies:
+#
+#   secrets  -> built in. `security/scanners/builtin_secret_scanner.py` wraps
+#               `redaction.find_secrets()`, so secret detection works after a
+#               plain `pip install aep-platform` with no extra and no binary.
+#               `gitleaks` is still used automatically when present (more
+#               rules), but is never required.
+#   IaC      -> built in. `infra/scanners/` has real, dependency-free
+#               Terraform/Kubernetes checks, so `aep scan` covers IaC out of
+#               the box. `checkov` (2.3MB wheel, Apache-2.0, pure-python)
+#               below adds breadth, not baseline capability.
+#   SAST     -> NOT built in. Semgrep's wheels are 45-79MB per platform;
+#               forcing that into every install to cover a capability most
+#               users' repos may not need is a dependency bomb, so it is an
+#               opt-in extra rather than a silent 50MB tax.
+#   containers-> no safe self-contained option exists: image scanning needs
+#               registry network access and a vulnerability database, so it
+#               is reported BLOCKED rather than shipped broken.
+sast = ["semgrep>=1.60"]
+iac = ["checkov>=3.2"]
 # Union of every real optional integration (excludes `dev`, which is
 # test-tooling only, not a runtime capability). Self-reference must use
 # the DISTRIBUTION name (aep-platform), not the import package (aep) -
 # pip resolves extras-of-self by the name on PyPI/in this file's [project]
 # table, not by what `import` uses.
-all = ["aep-platform[anthropic,dependency-scanning,api,infra,sbom,github]"]
+all = ["aep-platform[anthropic,dependency-scanning,api,infra,sbom,github,sast,iac]"]
 
 [project.urls]
 Repository = "https://github.com/CloudYatriOps/infraops"

@@ -1,5 +1,113 @@
 # Bug Fixes
 
+## BUG-0023: `_iac_result` swallowed scanner exceptions into a false PASS
+
+- **Date:** 2026-08-21
+- **Component:** `src/aep/scan.py` (found during first-run verification against a real Terraform repository, before the code shipped).
+
+### Symptom
+`aep scan` reported `IaC PASS - no findings across TERRAFORM` on
+`winfotest-infra`, a real 32-asset Terraform repository. The scan had in
+fact run nothing: `infra/scanners/*.scan()` returns a
+`SecurityScanRecord`, not a list, so `findings.extend(scanner.scan(...))`
+raised `TypeError: object of type 'SecurityScanRecord' has no len()` -
+which a broad `except Exception: continue` discarded, leaving an empty
+findings list that rendered as a clean bill of health.
+
+### Impact
+The worst possible failure mode for a security tool: a crashed scanner
+presented as a PASS. A user would have concluded their infrastructure was
+clean when it had never been examined. Caught before release only because
+the result was sanity-checked against a real repository instead of being
+taken at face value.
+
+### Root cause
+Two compounding mistakes, both mine in the same function: an incorrect
+assumption about the scanner return type, and an `except ... : continue`
+that treated "this scanner exploded" as equivalent to "this scanner found
+nothing".
+
+### Fix
+`_iac_result` now consumes `SecurityScanRecord` properly (checking
+`record.availability`, reading `record.findings`) and tracks whether any
+scanner actually ran. If none did, the result is `UNAVAILABLE` with the
+collected errors; if some ran and others failed, it is `PASS` with an
+explicit "partial coverage" note naming the failures. A scanner error can
+no longer render as a clean PASS under any path.
+
+### Tests
+`tests/test_capabilities_and_scan.py` (9 tests) pass; re-running the real
+`winfotest-infra` scan now correctly reports `IaC FAIL - 1 finding` (a
+genuine `backend "local"` in a bootstrap stack), where it previously
+claimed PASS.
+
+### Lesson
+A blanket `except: continue` inside an aggregation loop converts every
+failure into a silent negative result. Anywhere "found nothing" and
+"could not look" are both representable, they must be distinct states in
+the return type, not collapsed by exception handling.
+
+## BUG-0022: secret detector reported variable REFERENCES as leaked secrets
+
+- **Date:** 2026-08-21
+- **Component:** `src/aep/redaction.py` (`generic_api_key_assignment`), found by scanning a real Terraform repository.
+
+### Symptom
+Scanning `winfotest-infra` produced 5 HIGH-severity "committed secret"
+findings, every one a false positive:
+
+```
+password = local.db_admin_password        # Terraform local reference
+password = var.argocd_repo_pat            # Terraform variable reference
+secret   = secrets_client.get_secret_bundle(   # a function call, in docs
+password = base64.b64decode(...).decode()      # a function call, in docs
+```
+
+The `generic_api_key_assignment` pattern matches
+`<keyword> [:=] <value>` where the value character class
+(`[A-Za-z0-9\-_./+=]{12,}`) happily accepts a dotted identifier - so
+`local.db_admin_password` read as a 22-character "secret".
+
+### Impact
+Directly inverts the tool's purpose. Every one of those lines is the
+*correct, secure* pattern - pulling a credential from a variable or a
+secret manager rather than hardcoding it - so the scanner was penalising
+good practice. Worse, on a repository with real leaks the noise would
+bury them, and a demo showing 5 phantom secrets on a customer repo
+destroys trust in every other finding AEP reports.
+
+### Root cause
+The pattern validated the *shape of the assignment* but never the *nature
+of the value*. A reference to a secret is not a secret.
+
+### Fix
+Added a value-classification step applied only to
+`generic_api_key_assignment`: a match is discarded when the right-hand
+side is structurally a code reference - Terraform `var.`/`local.`/
+`data.`/`module.` prefixes, `os.environ`/`process.env`/config lookups,
+`${...}` interpolation, `<PLACEHOLDER>` text, anything containing a
+function call, or an unquoted bare dotted identifier. Deliberately
+conservative: an unquoted literal (`PASSWORD=hunter2abc123`, as in a
+`.env` file) is still reported, so no real detection capability was
+traded away to remove the noise.
+
+### Tests
+9-case table covering all 5 real-world false positives plus 3
+must-still-detect literals and a placeholder -
+all correct. `tests/test_capabilities_and_scan.py::
+test_secret_reference_is_not_reported_as_a_leaked_secret` pins the
+regression. Focused re-run of every redaction/secret/security/scanner/demo
+test: 111 passed, 15 skipped, no regressions - the demo's planted
+`AKIA...` fixture is still detected.
+
+### Lesson
+A detector tuned only on positive fixtures will look perfect until it
+meets a real repository. The 5 false positives here appeared the first
+time the scanner was pointed at production code it had not been written
+against - which is the argument for validating security tooling on real
+repositories, not just on the fixtures that inspired its rules.
+
+
 ## BUG-0021: README documented `pip install aep-platform` as a working command against a package that was never published
 
 - **Date:** 2026-08-21

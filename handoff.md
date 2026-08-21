@@ -1542,3 +1542,108 @@ hit a pre-existing, unrelated pytest-invocation quirk (`ModuleNotFoundError:
 No module named 'tests'` - a `sys.path`/rootdir difference on that
 specific interpreter, not caused by the rename) and was not chased
 further since the proven venv already gives a clean, reproducible signal.
+
+## Capability-routed scanning + self-contained security (this session)
+
+Addressed the "user must install gitleaks/semgrep/checkov/trivy themselves"
+problem and the "every repo is treated as an infrastructure repo" problem.
+No UI work in this pass - see "Not done" below.
+
+**New: project capability detection** (`src/aep/capabilities.py`).
+`detect_project(path)` returns a `ProjectProfile` of what a repository
+demonstrably IS - APPLICATION / INFRASTRUCTURE / KUBERNETES / HELM /
+TERRAFORM / CONTAINER / PYTHON / NODE / GO / JAVA / CI_CD / GIT / UNKNOWN,
+multiple at once - with the concrete evidence paths for every claim. Two
+hard rules: detection is from evidence only (a directory named
+`terraform/` with no `.tf` files is NOT Terraform - pinned by a test), and
+it is strictly read-only. Infrastructure capabilities are a projection of
+the EXISTING `infra.discovery.discover_infrastructure()` inventory, not a
+second rival detector.
+
+**New: `aep scan <path>`** (`src/aep/scan.py`, CLI `cmd_scan`). Detects,
+routes, runs only applicable analyzers, and reports the rest with
+non-interchangeable statuses - the specific fix for the reported UX
+problem:
+
+  PASS/FAIL   applicable, ran
+  SKIPPED     NOT APPLICABLE (no .tf, no Chart.yaml, no manifests)
+  UNAVAILABLE applicable, but this install cannot provide it
+  BLOCKED     applicable, but an external precondition prevents it
+
+A pure React app is no longer told its Terraform scanning is
+"unavailable". `--json` supported. Read-only, with a test asserting file
+contents are byte-identical before and after a scan.
+
+**Self-contained scanners - the audit and what was done:**
+
+| Scanner | Decision | Size | Platforms | License | Status |
+|---|---|---|---|---|---|
+| Secrets (gitleaks) | **built in** - new `builtin_secret_scanner.py` wraps the EXISTING `redaction.find_secrets()` (9 real patterns) behind the standard adapter | 0 | all | n/a | **works on plain install** |
+| IaC (checkov) | **built in** - `infra/scanners/` already has real dependency-free TF/K8s checks | 0 | all | n/a | **works on plain install** |
+| SAST (semgrep) | optional extra `[sast]` | 45-79MB/platform | win/mac/linux wheels | LGPL-2.1 | opt-in, honestly UNAVAILABLE otherwise |
+| IaC breadth (checkov) | optional extra `[iac]` | 2.3MB pure-any | all | Apache-2.0 | opt-in |
+| Containers (trivy) | **no safe self-contained option** - needs registry access + vuln DB | - | - | - | honestly BLOCKED, never "go install trivy" |
+
+Semgrep was deliberately NOT made a core dependency: 45-79MB per platform
+on every install, to cover a capability many repos don't need, is a
+dependency bomb. Secrets and IaC - the two that genuinely CAN be
+self-contained - now are.
+
+**Two genuine defects found and fixed, both by pointing the new scanner at
+a REAL repository rather than trusting fixtures:**
+
+- **BUG-0022**: the secret detector reported variable REFERENCES as leaked
+  secrets. `password = local.db_admin_password`, `password =
+  var.argocd_repo_pat`, `secret = client.get_secret_bundle(` - 5 HIGH
+  findings on `winfotest-infra`, all false positives, all of them the
+  *correct secure pattern*. Fixed with a value-classification step
+  (references/interpolation/function calls/placeholders are not secrets);
+  unquoted real literals like `PASSWORD=hunter2abc123` still detected.
+- **BUG-0023**: `_iac_result` swallowed a `TypeError` (scanners return a
+  `SecurityScanRecord`, not a list) into a **false PASS** - reporting "no
+  findings" on a 32-asset Terraform repo it had never actually scanned.
+  The worst failure mode possible for a security tool. Now a scanner that
+  errors can never render as PASS.
+
+**Real-project acceptance test (`winfotest-infra`), the primary one:**
+
+```
+Detected: CI_CD, GIT, INFRASTRUCTURE, TERRAFORM
+  Secrets       PASS      (0 - was 5 false positives before BUG-0022)
+  SAST          SKIPPED   no application source
+  Dependencies  SKIPPED   no dependency manifest
+  IaC           FAIL      1 finding across TERRAFORM
+  Containers    SKIPPED   no container definition
+```
+
+The one IaC finding is a true positive: `backend "local" {}` in the
+tfstate bootstrap stack. The repo documents it as an intentional
+bootstrap exception - correct behaviour is to flag it and let a human
+decide, which is what suppressions exist for. Not suppressed, not
+dismissed.
+
+**Secret audit (dogfooded - ran `aep scan .` on AEP itself):** 39 secret
+matches, **zero real**. 32 in `tests/` (synthetic fixtures), 5 in
+docs/ARCHITECTURE/handoff (documentation examples), 1 in
+`redaction.py` (the detector's own comment text), 1 in
+`demo_template/config.py` (the intentional demo fixture the demo exists to
+catch). Classified: FAKE TEST SECRET / DOCUMENTATION EXAMPLE / SAFE.
+
+**Also:** README replaced with a short PyPI-appropriate one (install →
+start → scan → limitations → doc links); the previous 929-line version
+moved to `docs/README-FULL.md` rather than deleted.
+
+**Artifacts:** `python -m build` + `twine check` PASSED for both
+`aep_platform-0.1.0-py3-none-any.whl` and the sdist; the wheel contains
+`capabilities.py`, `scan.py`, `builtin_secret_scanner.py`.
+**NOT PUBLISHED** - awaiting explicit approval, and PyPI credentials still
+do not exist on this machine.
+
+**NOT DONE this pass, deliberately and disclosed:** the UI redesign
+(Parts 13-16: `/design` concept, glassmorphism implementation, Playwright
+visual QA). That is a large, self-contained piece of work and the browser
+tooling was not connected when attempted earlier in this session; shipping
+a half-migrated UI would be worse than not starting. The existing UI is
+untouched and still works. Also not done: the fuller CLI help
+reorganisation (Part 9) beyond adding `scan` - existing commands are all
+intact and no automation was broken.

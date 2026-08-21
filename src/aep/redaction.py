@@ -30,6 +30,59 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
 # callers can filter it out when they only want high-confidence matches.
 HIGH_CONFIDENCE_KINDS = {n for n, _ in _PATTERNS if n != "high_entropy_generic"}
 
+# BUG-0022: `generic_api_key_assignment` matches `<keyword> = <value>`, and
+# its value character class happily accepts a CODE REFERENCE
+# (`password = local.db_admin_password`, `password = var.argocd_repo_pat`,
+# `secret = client.get_secret_bundle(`). Those are not secrets - they are
+# the CORRECT, secure pattern of pulling a credential from a variable or a
+# secret manager. Reporting them as committed secrets is a false positive
+# that punishes good practice and, worse, buries real findings in noise.
+#
+# A value is treated as a reference (and therefore NOT a secret) when it
+# looks like code rather than a literal. Deliberately conservative: this
+# only ever suppresses values that are structurally references, so an
+# unquoted real secret (e.g. `PASSWORD=hunter2abc123` in a .env file) is
+# still reported.
+_REFERENCE_VALUE = re.compile(
+    r"""^\s*(?:
+          (?:var|local|module|data|self|each|count|path|terraform)\.   # Terraform refs
+        | (?:process\.env|os\.environ|ENV|config|settings|secrets?) # app config refs
+        | \$\{?                                                       # ${...} / $VAR
+        | <                                                            # <PLACEHOLDER>
+        )""",
+    re.VERBOSE,
+)
+
+# A bare dotted/namespaced identifier with no quotes - `a.b_c`, `client.get`
+# - is a reference, not a literal. A real secret is not dotted-lowercase.
+_BARE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
+
+
+def _value_of(match_text: str) -> str:
+    """Return the right-hand side of a `key = value` style match."""
+    for sep in (":=", "=", ":"):
+        if sep in match_text:
+            return match_text.split(sep, 1)[1].strip()
+    return match_text.strip()
+
+
+def _is_reference_not_secret(match_text: str) -> bool:
+    """True when the matched assignment points at a secret rather than
+    containing one (a variable, env lookup, or function call)."""
+    value = _value_of(match_text)
+    quoted = len(value) >= 2 and value[0] in "'\"" and value[-1] == value[0]
+    inner = value[1:-1].strip() if quoted else value
+
+    if not inner:
+        return True
+    if _REFERENCE_VALUE.match(inner):
+        return True
+    if "(" in inner:            # function call: get_secret(...)
+        return True
+    if not quoted and _BARE_IDENTIFIER.match(inner):
+        return True
+    return False
+
 
 @dataclass
 class SecretMatch:
@@ -46,6 +99,8 @@ def find_secrets(text: str, high_confidence_only: bool = True) -> list[SecretMat
             continue
         for m in pattern.finditer(text):
             raw = m.group(0)
+            if kind == "generic_api_key_assignment" and _is_reference_not_secret(raw):
+                continue  # a reference to a secret is not a leaked secret
             preview = raw[:4] + "…redacted…" if len(raw) > 4 else "…redacted…"
             matches.append(SecretMatch(kind=kind, start=m.start(), end=m.end(), snippet=preview))
     return matches
